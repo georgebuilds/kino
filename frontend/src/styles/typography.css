@@ -1,0 +1,66 @@
+/* ─── Typography ─────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* Scale */
+  --text-display-lg: 700 32px/1.2  var(--font-display);
+  --text-display-sm: 600 24px/1.25 var(--font-display);
+  --text-heading:    600 18px/1.3  var(--font-display);
+  --text-subheading: 600 14px/1.4  var(--font-display);
+  --text-body:       400 14px/1.5  var(--font-body);
+  --text-body-sm:    400 13px/1.5  var(--font-body);
+  --text-label:      500 12px/1.4  var(--font-body);
+  --text-mono:       400 13px/1.5  var(--font-mono);
+}
+
+/* Utility classes */
+.text-display-lg { font: var(--text-display-lg); letter-spacing: -0.5px; }
+.text-display-sm { font: var(--text-display-sm); letter-spacing: -0.3px; }
+.text-heading    { font: var(--text-heading); }
+.text-subheading { font: var(--text-subheading); letter-spacing: 0.02em; text-transform: uppercase; }
+.text-body       { font: var(--text-body); }
+.text-body-sm    { font: var(--text-body-sm); }
+.text-label      { font: var(--text-label); }
+.text-mono       { font: var(--text-mono); }
+
+/* Tabular numbers everywhere digits appear in data contexts */
+.tabular-nums,
+.amount,
+[class*="amount"],
+[class*="balance"],
+[class*="stat"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Amount display — the $12,450.00 pattern */
+.amount-display {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount-display .currency-symbol {
+  font: var(--text-display-sm);
+  color: var(--color-text-secondary);
+}
+
+.amount-display .amount-value {
+  font: var(--text-display-lg);
+  color: var(--color-text-primary);
+}
+
+.amount-display .amount-cents {
+  font: var(--text-heading);
+  color: var(--color-text-secondary);
+}
+
+/* Directional amount colors */
+.amount--positive { color: var(--color-income); }
+.amount--negative { color: var(--color-expense); }
+.amount--neutral  { color: var(--color-text-secondary); }

@@ -1,0 +1,124 @@
+/* ─── Kino Design Tokens ─────────────────────────────────────────────────── */
+
+:root {
+  /* Primary — Forest Green */
+  --color-primary-50:  #EDFAF3;
+  --color-primary-100: #D0F0E0;
+  --color-primary-200: #A3E0C3;
+  --color-primary-300: #6BC9A3;
+  --color-primary-400: #35AD7E;
+  --color-primary-500: #1A8A61;
+  --color-primary-600: #147050;
+  --color-primary-700: #0F573D;
+  --color-primary-800: #094029;
+  --color-primary-900: #052B1A;
+
+  /* Accent — Antler Gold */
+  --color-gold-300: #E8C47A;
+  --color-gold-400: #D4A84B;
+  --color-gold-500: #C4943A;
+  --color-gold-600: #A87A28;
+
+  /* Semantic */
+  --color-income:  #16A34A;
+  --color-expense: #DC2626;
+  --color-warning: #D97706;
+
+  /* Sankey category palette */
+  --color-cat-income:        #1A8A61;
+  --color-cat-savings:       #C4943A;
+  --color-cat-housing:       #6D4C9E;
+  --color-cat-food:          #C4603A;
+  --color-cat-transport:     #2A7FA8;
+  --color-cat-subscriptions: #B84A72;
+  --color-cat-health:        #4A9E8A;
+  --color-cat-entertainment: #8A5A2A;
+  --color-cat-misc:          #5A6B60;
+
+  /* Spacing */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* Border radius */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 9999px;
+
+  /* Layout */
+  --sidebar-width:          220px;
+  --sidebar-width-collapsed: 64px;
+  --content-max-width:      1200px;
+  --detail-panel-width:     380px;
+
+  /* Transitions */
+  --duration-fast:   120ms;
+  --duration-base:   180ms;
+  --duration-slow:   220ms;
+  --duration-xslow:  600ms;
+  --ease-out:        cubic-bezier(0.0, 0.0, 0.2, 1);
+  --ease-in-out:     cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+/* ─── Light Mode ─────────────────────────────────────────────────────────── */
+
+:root,
+[data-theme="light"] {
+  --color-bg:         #F2F5F0;
+  --color-surface-1:  #FFFFFF;
+  --color-surface-2:  #EDF2EB;
+  --color-surface-3:  #E4EBE1;
+  --color-border:     rgba(0, 0, 0, 0.08);
+  --color-border-strong: rgba(0, 0, 0, 0.14);
+
+  --color-text-primary:   #131A14;
+  --color-text-secondary: #4A6054;
+  --color-text-tertiary:  #7A9080;
+  --color-text-disabled:  #B0C0B4;
+  --color-text-on-primary: #FFFFFF;
+
+  --color-primary:    var(--color-primary-500);
+  --color-primary-hover: var(--color-primary-600);
+  --color-accent:     var(--color-gold-500);
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.10), 0 4px 8px rgba(0,0,0,0.05);
+  --shadow-xl: 0 24px 64px rgba(0,0,0,0.14);
+}
+
+/* ─── Dark Mode ──────────────────────────────────────────────────────────── */
+
+[data-theme="dark"] {
+  --color-bg:         #0D1210;
+  --color-surface-1:  #141C18;
+  --color-surface-2:  #1C2820;
+  --color-surface-3:  #233029;
+  --color-border:     rgba(255, 255, 255, 0.07);
+  --color-border-strong: rgba(255, 255, 255, 0.12);
+
+  --color-text-primary:   #E8EDE9;
+  --color-text-secondary: #7A9B86;
+  --color-text-tertiary:  #4A6054;
+  --color-text-disabled:  #2A3A2E;
+  --color-text-on-primary: #FFFFFF;
+
+  --color-primary:    var(--color-primary-400);
+  --color-primary-hover: var(--color-primary-300);
+  --color-accent:     var(--color-gold-400);
+
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+}

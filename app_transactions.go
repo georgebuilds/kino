@@ -1,0 +1,69 @@
+package main
+
+import (
+	"kino/internal/db"
+	"kino/internal/models"
+)
+
+// TxFilter is re-exported at the main package level so Wails generates
+// the TypeScript type for it automatically.
+type TxFilter = db.TxFilter
+
+// TxPage is similarly re-exported.
+type TxPage = db.TxPage
+
+func (a *App) ListTransactions(filter TxFilter) (TxPage, error) {
+	if err := a.requireDB(); err != nil {
+		return TxPage{}, err
+	}
+	return a.db.ListTransactions(filter)
+}
+
+func (a *App) GetTransaction(id int64) (*models.Transaction, error) {
+	if err := a.requireDB(); err != nil {
+		return nil, err
+	}
+	return a.db.GetTransaction(id)
+}
+
+func (a *App) CreateTransaction(t models.Transaction) (models.Transaction, error) {
+	if err := a.requireDB(); err != nil {
+		return t, err
+	}
+	if err := a.db.CreateTransaction(&t); err != nil {
+		return t, err
+	}
+	// Keep account balance in sync.
+	_ = a.db.RecalcBalance(t.AccountID)
+	return t, nil
+}
+
+func (a *App) UpdateTransaction(t models.Transaction) error {
+	if err := a.requireDB(); err != nil {
+		return err
+	}
+	// Fetch old to know which account might need rebalancing.
+	old, _ := a.db.GetTransaction(t.ID)
+	if err := a.db.UpdateTransaction(&t); err != nil {
+		return err
+	}
+	_ = a.db.RecalcBalance(t.AccountID)
+	if old != nil && old.AccountID != t.AccountID {
+		_ = a.db.RecalcBalance(old.AccountID)
+	}
+	return nil
+}
+
+func (a *App) DeleteTransaction(id int64) error {
+	if err := a.requireDB(); err != nil {
+		return err
+	}
+	t, _ := a.db.GetTransaction(id)
+	if err := a.db.DeleteTransaction(id); err != nil {
+		return err
+	}
+	if t != nil {
+		_ = a.db.RecalcBalance(t.AccountID)
+	}
+	return nil
+}

@@ -1,0 +1,27 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vueuse/core": "^14.3.0",
+    "d3": "^7.9.0",
+    "lucide-vue-next": "^1.0.0",
+    "pinia": "^3.0.4",
+    "vue": "^3.2.37",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@babel/types": "^7.18.10",
+    "@types/d3": "^7.4.3",
+    "@vitejs/plugin-vue": "^3.0.3",
+    "typescript": "^6.0.3",
+    "vite": "^3.0.7",
+    "vue-tsc": "^3.2.8"
+  }
+}

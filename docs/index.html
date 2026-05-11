@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>kino — a personal finance app that never leaves your machine</title>
-    <meta name="description" content="A local-first personal finance desktop app. Track accounts, transactions, budgets, and net worth in a single .kino SQLite file you own. No cloud, no sync, no telemetry. By George Fernandez (georgebuilds)." />
+    <meta name="description" content="A local-first personal finance desktop app. Track accounts, transactions, budgets, and net worth in a single .kino file you own. No cloud, no sync, no telemetry. By George Fernandez (georgebuilds)." />
     <meta name="author" content="George Fernandez" />
     <meta name="keywords" content="kino, local-first finance, personal finance app, sqlite finance tracker, ofx import, qfx, budget tracker, sankey cash flow, net worth, Wails, Go, Vue, georgebuilds, George Fernandez" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -16,7 +16,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://georgebuilds.github.io/kino/" />
     <meta property="og:title" content="kino — a personal finance app that never leaves your machine" />
-    <meta property="og:description" content="Track accounts, transactions, budgets, and net worth in a single .kino SQLite file you own. No cloud, no sync, no telemetry." />
+    <meta property="og:description" content="Track accounts, transactions, budgets, and net worth in a single .kino file you own. No cloud, no sync, no telemetry." />
     <meta property="og:site_name" content="kino · georgebuilds" />
     <meta property="og:locale" content="en_US" />
     <meta property="og:image" content="https://georgebuilds.github.io/kino/og.png" />
@@ -27,7 +27,7 @@
     <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="kino — a personal finance app that never leaves your machine" />
-    <meta name="twitter:description" content="Track accounts, transactions, budgets, and net worth in a single .kino SQLite file you own. No cloud, no sync, no telemetry." />
+    <meta name="twitter:description" content="Track accounts, transactions, budgets, and net worth in a single .kino file you own. No cloud, no sync, no telemetry." />
     <meta name="twitter:image" content="https://georgebuilds.github.io/kino/og.png" />
     <meta name="twitter:image:alt" content="kino — a local-first personal finance app" />
 
@@ -616,6 +616,167 @@
       }
       .footnote a:hover { color: var(--bone); }
 
+      /* ===== Download cards (primary CTA) ===== */
+      .dl-cards {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        width: 100%;
+        max-width: 560px;
+      }
+      .dl-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px 14px 12px;
+        border: 1px solid var(--frame-strong);
+        background: rgba(5, 7, 21, 0.55);
+        border-radius: 8px;
+        text-align: left;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        transition: border-color 0.15s, background 0.15s, transform 0.15s;
+      }
+      .dl-card.is-suggested {
+        border-color: var(--accent-line);
+        background: rgba(212, 162, 76, 0.06);
+        box-shadow: inset 0 0 0 1px var(--accent-line);
+      }
+      .dl-card-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dl-card-glyph {
+        font-size: 14px;
+        line-height: 1;
+        color: var(--accent);
+        flex: 0 0 auto;
+      }
+      .dl-card-name {
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--bone);
+      }
+      .dl-card.is-suggested .dl-card-name { color: var(--accent); }
+      .dl-card-arch {
+        margin-left: auto;
+        font-size: 9.5px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--soft);
+      }
+      .dl-card-asset {
+        font-size: 10.5px;
+        color: var(--muted);
+        line-height: 1.4;
+        word-break: break-all;
+        min-height: 1.4em;
+      }
+      .dl-card-asset .dl-size {
+        color: var(--soft);
+        margin-left: 4px;
+      }
+      .dl-card-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 9px 12px;
+        margin-top: auto;
+        border-radius: 6px;
+        font: inherit;
+        font-size: 12px;
+        text-decoration: none;
+        background: rgba(239, 231, 215, 0.06);
+        color: var(--bone);
+        border: 1px solid var(--frame-strong);
+        transition: all 0.15s;
+      }
+      .dl-card-btn:hover {
+        background: rgba(239, 231, 215, 0.12);
+        border-color: rgba(239, 231, 215, 0.32);
+        transform: translateY(-1px);
+      }
+      .dl-card.is-suggested .dl-card-btn {
+        background: var(--accent);
+        color: #1a1714;
+        border-color: var(--accent);
+        font-weight: 500;
+      }
+      .dl-card.is-suggested .dl-card-btn:hover {
+        filter: brightness(1.08);
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .dl-card-btn .arrow {
+        font-size: 13px;
+        transition: transform 0.18s;
+      }
+      .dl-card-btn:hover .arrow { transform: translateY(2px); }
+
+      .dl-note {
+        font-size: 11px;
+        color: var(--soft);
+        letter-spacing: 0.04em;
+        line-height: 1.55;
+        max-width: 64ch;
+      }
+      .dl-note em {
+        color: var(--muted);
+        font-style: normal;
+      }
+      .dl-note .dot {
+        color: var(--accent);
+        margin: 0 5px;
+      }
+      .dl-note a {
+        color: inherit;
+        text-decoration: none;
+        border-bottom: 1px dotted var(--frame-strong);
+        transition: color 0.15s;
+      }
+      .dl-note a:hover { color: var(--bone); }
+
+      /* collapsible "build from source" */
+      .build-details {
+        width: 100%;
+        max-width: 560px;
+      }
+      .build-details > summary {
+        list-style: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: var(--soft);
+        padding: 4px 0;
+        transition: color 0.15s;
+        user-select: none;
+      }
+      .build-details > summary::-webkit-details-marker { display: none; }
+      .build-details > summary::after {
+        content: '▸';
+        font-size: 9px;
+        transition: transform 0.2s;
+        color: var(--muted);
+      }
+      .build-details[open] > summary::after { transform: rotate(90deg); }
+      .build-details > summary:hover { color: var(--bone); }
+      .build-details > summary code {
+        font-family: inherit;
+        color: var(--muted);
+      }
+      .build-details > .terminal { margin-top: 10px; }
+
+      @media (max-width: 560px) {
+        .dl-cards { grid-template-columns: 1fr; }
+      }
+
       @media (max-width: 880px) {
         .center {
           grid-template-columns: 1fr;
@@ -695,30 +856,84 @@
             <li class="tick">import ofx / qfx / csv with duplicate detection</li>
             <li class="tick">budgets with rollover · weekly · monthly · annual</li>
             <li class="tick">cash-flow sankey · 12 / 24-month net-worth history</li>
-            <li class="tick">cents as <code style="font-family:inherit;color:var(--bone);">int64</code> — never a floating-point dollar</li>
-            <li class="tick">one file on disk — back it up the way you like</li>
+            <li class="tick">cents as <code style="font-family:inherit;color:var(--bone);">int64</code>, never a floating-point dollar</li>
+            <li class="tick">one file on disk; back it up the way you like</li>
           </ul>
 
-          <div class="terminal" role="region" aria-label="build from source">
-            <div class="terminal-bar">
-              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-              <span class="label">~ build from source</span>
+          <div class="dl-cards" role="list" aria-label="downloads">
+            <div class="dl-card" data-platform="mac" role="listitem">
+              <div class="dl-card-head">
+                <span class="dl-card-glyph" aria-hidden="true">◍</span>
+                <span class="dl-card-name">macos</span>
+                <span class="dl-card-arch">arm64</span>
+              </div>
+              <div class="dl-card-asset" data-asset>kino.app · latest release</div>
+              <a
+                class="dl-card-btn"
+                data-dl
+                href="https://github.com/georgebuilds/kino/releases/latest"
+                target="_blank"
+                rel="noopener"
+              >
+                <span class="arrow">↓</span> <span data-btn-label>download</span>
+              </a>
             </div>
-            <div class="terminal-body">
-              <span class="prompt">$</span>
-              <code class="cmd" id="cmd">git clone https://github.com/georgebuilds/kino &amp;&amp; cd kino &amp;&amp; wails build</code>
-              <button class="copy" id="copy" type="button" aria-label="copy command">copy</button>
+
+            <div class="dl-card" data-platform="linux" role="listitem">
+              <div class="dl-card-head">
+                <span class="dl-card-glyph" aria-hidden="true">◌</span>
+                <span class="dl-card-name">linux</span>
+                <span class="dl-card-arch">x86_64</span>
+              </div>
+              <div class="dl-card-asset" data-asset>kino binary · latest release</div>
+              <a
+                class="dl-card-btn"
+                data-dl
+                href="https://github.com/georgebuilds/kino/releases/latest"
+                target="_blank"
+                rel="noopener"
+              >
+                <span class="arrow">↓</span> <span data-btn-label>download</span>
+              </a>
+            </div>
+
+            <div class="dl-card" data-platform="windows" role="listitem">
+              <div class="dl-card-head">
+                <span class="dl-card-glyph" aria-hidden="true">▦</span>
+                <span class="dl-card-name">windows</span>
+                <span class="dl-card-arch">x64</span>
+              </div>
+              <div class="dl-card-asset" data-asset>kino.exe · latest release</div>
+              <a
+                class="dl-card-btn"
+                data-dl
+                href="https://github.com/georgebuilds/kino/releases/latest"
+                target="_blank"
+                rel="noopener"
+              >
+                <span class="arrow">↓</span> <span data-btn-label>download</span>
+              </a>
             </div>
           </div>
 
-          <div class="actions">
-            <a class="btn btn-primary" href="https://github.com/georgebuilds/kino#readme" target="_blank" rel="noopener">
-              <span class="arrow">↗</span> read the docs
-            </a>
-            <a class="btn" href="https://github.com/georgebuilds/kino" target="_blank" rel="noopener">
-              <span class="arrow">↗</span> view source
-            </a>
-          </div>
+          <p class="dl-note">
+            <em>signed &amp; notarized on macOS<span class="dot">·</span>sha256 next to every asset<span class="dot">·</span><a href="https://github.com/georgebuilds/kino/releases" target="_blank" rel="noopener">all releases</a></em>
+          </p>
+
+          <details class="build-details">
+            <summary>or <code>build from source</code></summary>
+            <div class="terminal" role="region" aria-label="build from source">
+              <div class="terminal-bar">
+                <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                <span class="label">~ build from source</span>
+              </div>
+              <div class="terminal-body">
+                <span class="prompt">$</span>
+                <code class="cmd" id="cmd">git clone https://github.com/georgebuilds/kino &amp;&amp; cd kino &amp;&amp; wails build</code>
+                <button class="copy" id="copy" type="button" aria-label="copy command">copy</button>
+              </div>
+            </div>
+          </details>
         </section>
 
         <aside class="portrait-wrap" aria-label="kino mascot — the bookkeeper elk">
@@ -785,6 +1000,114 @@
             s.addRange(r);
           }
         });
+      })();
+
+      // ===== DOWNLOAD CARDS =====
+      (() => {
+        const RELEASE_PATTERNS = {
+          mac: /^kino-v[\d.]+-darwin-arm64\.zip$/,
+          linux: /^kino-v[\d.]+-linux-amd64\.tar\.gz$/,
+          windows: /^kino-v[\d.]+-windows-amd64\.zip$/,
+        };
+        const FALLBACK_ASSET = {
+          mac: 'kino.app · latest release',
+          linux: 'kino binary · latest release',
+          windows: 'kino.exe · latest release',
+        };
+        const RELEASES_LATEST = 'https://github.com/georgebuilds/kino/releases/latest';
+
+        const cards = Array.from(document.querySelectorAll('.dl-card'));
+
+        function detectPlatform() {
+          const ua = navigator.userAgent || '';
+          const data = navigator.userAgentData;
+          let p = '';
+          if (data && data.platform) p = data.platform.toLowerCase();
+          else p = ua.toLowerCase();
+          if (p.includes('mac') || p.includes('darwin')) return 'mac';
+          if (p.includes('win')) return 'windows';
+          if (p.includes('linux') || p.includes('cros') || p.includes('android')) return 'linux';
+          return null;
+        }
+
+        function highlightSuggested() {
+          const detected = detectPlatform();
+          cards.forEach((c) => {
+            const match = detected && c.dataset.platform === detected;
+            c.classList.toggle('is-suggested', !!match);
+          });
+        }
+
+        function formatBytes(n) {
+          if (!Number.isFinite(n) || n <= 0) return '';
+          if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+          if (n >= 1024) return (n / 1024).toFixed(0) + ' KB';
+          return n + ' B';
+        }
+
+        async function fetchPlatformAvailability() {
+          try {
+            const r = await fetch(
+              'https://api.github.com/repos/georgebuilds/kino/releases?per_page=30',
+              { headers: { Accept: 'application/vnd.github+json' } }
+            );
+            if (!r.ok) return null;
+            const releases = await r.json();
+            const out = { mac: null, linux: null, windows: null };
+            for (const rel of releases) {
+              if (rel.draft || rel.prerelease) continue;
+              for (const a of rel.assets || []) {
+                for (const p of ['mac', 'linux', 'windows']) {
+                  if (out[p]) continue;
+                  if (RELEASE_PATTERNS[p].test(a.name)) {
+                    out[p] = {
+                      tag: rel.tag_name,
+                      url: a.browser_download_url,
+                      name: a.name,
+                      size: a.size,
+                    };
+                  }
+                }
+              }
+              if (out.mac && out.linux && out.windows) break;
+            }
+            return out;
+          } catch {
+            return null;
+          }
+        }
+
+        function applyAvailability(avail) {
+          if (!avail) return;
+          for (const p of ['mac', 'linux', 'windows']) {
+            const card = cards.find((c) => c.dataset.platform === p);
+            if (!card) continue;
+            const info = avail[p];
+            const assetEl = card.querySelector('[data-asset]');
+            const dlEl = card.querySelector('[data-dl]');
+            const labelEl = card.querySelector('[data-btn-label]');
+            if (info) {
+              const sizeText = formatBytes(info.size);
+              assetEl.textContent = info.name;
+              if (sizeText) {
+                const sz = document.createElement('span');
+                sz.className = 'dl-size';
+                sz.textContent = '· ' + sizeText;
+                assetEl.appendChild(document.createTextNode(' '));
+                assetEl.appendChild(sz);
+              }
+              dlEl.href = info.url;
+              if (labelEl) labelEl.textContent = 'download ' + info.tag;
+            } else {
+              assetEl.textContent = FALLBACK_ASSET[p];
+              dlEl.href = RELEASES_LATEST;
+              if (labelEl) labelEl.textContent = 'download';
+            }
+          }
+        }
+
+        highlightSuggested();
+        void fetchPlatformAvailability().then(applyAvailability);
       })();
     </script>
   </body>

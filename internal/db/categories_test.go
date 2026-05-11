@@ -128,6 +128,165 @@ func TestDeleteCategory_Missing_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestGetCategory_Found_And_Missing(t *testing.T) {
+	d := newTestDB(t)
+
+	cat := &models.Category{Name: "Found", Color: "#123456", Icon: "tag"}
+	if err := d.CreateCategory(cat); err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+
+	got, err := d.GetCategory(cat.ID)
+	if err != nil {
+		t.Fatalf("GetCategory: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetCategory returned nil for existing category")
+	}
+	if got.Name != "Found" {
+		t.Fatalf("Name = %q, want %q", got.Name, "Found")
+	}
+
+	missing, err := d.GetCategory(99999)
+	if err != nil {
+		t.Fatalf("GetCategory(missing) error: %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("GetCategory(99999) = %+v, want nil", missing)
+	}
+}
+
+func TestCreateCategory_PopulatesID_AndRoundTrips(t *testing.T) {
+	d := newTestDB(t)
+
+	cat := &models.Category{Name: "RoundTrip", Color: "#aabbcc", Icon: "star", IsIncome: true, SortOrder: 5}
+	if err := d.CreateCategory(cat); err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+	if cat.ID == 0 {
+		t.Fatal("CreateCategory did not populate ID")
+	}
+
+	list, err := d.ListCategories()
+	if err != nil {
+		t.Fatalf("ListCategories: %v", err)
+	}
+	var found bool
+	for _, c := range list {
+		if c.ID == cat.ID {
+			found = true
+			if c.Name != "RoundTrip" || c.Color != "#aabbcc" || c.Icon != "star" {
+				t.Fatalf("round-trip mismatch: %+v", c)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("created category id=%d not found in ListCategories", cat.ID)
+	}
+}
+
+func TestUpdateCategory_NonSystem_Persists(t *testing.T) {
+	d := newTestDB(t)
+
+	cat := &models.Category{Name: "Before", Color: "#000000", Icon: "tag", IsIncome: false, SortOrder: 1}
+	if err := d.CreateCategory(cat); err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+
+	cat.Name = "After"
+	cat.Color = "#ffffff"
+	cat.Icon = "star"
+	cat.SortOrder = 42
+	cat.IsIncome = true
+	if err := d.UpdateCategory(cat); err != nil {
+		t.Fatalf("UpdateCategory: %v", err)
+	}
+
+	got, err := d.GetCategory(cat.ID)
+	if err != nil {
+		t.Fatalf("GetCategory: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetCategory returned nil after update")
+	}
+	if got.Name != "After" || got.Color != "#ffffff" || got.Icon != "star" ||
+		got.SortOrder != 42 || !got.IsIncome {
+		t.Fatalf("UpdateCategory did not persist: got %+v", got)
+	}
+}
+
+func TestUpdateCategory_System_ReturnsError_NoChange(t *testing.T) {
+	d := newTestDB(t)
+
+	// id=12 "Uncategorized" is a seeded system category.
+	sys, err := d.GetCategory(12)
+	if err != nil {
+		t.Fatalf("GetCategory(12): %v", err)
+	}
+	if sys == nil || !sys.IsSystem {
+		t.Fatalf("seed category 12 missing or not system: %+v", sys)
+	}
+
+	// Attempt to mutate it — UpdateCategory checks c.IsSystem on the struct.
+	sys.Name = "Hacked"
+	updateErr := d.UpdateCategory(sys)
+	if updateErr == nil {
+		t.Fatal("UpdateCategory(system) returned nil, want error")
+	}
+
+	// Verify the name is unchanged.
+	still, err := d.GetCategory(12)
+	if err != nil {
+		t.Fatalf("GetCategory after failed update: %v", err)
+	}
+	if still == nil {
+		t.Fatal("system category disappeared after failed update")
+	}
+	if still.Name == "Hacked" {
+		t.Fatal("system category name was changed despite error")
+	}
+}
+
+func TestListCategories_OrdersBySortOrder(t *testing.T) {
+	d := newTestDB(t)
+
+	// Create three user categories with different sort_order values.
+	cats := []*models.Category{
+		{Name: "Middle", Color: "#111", Icon: "tag", SortOrder: 50},
+		{Name: "Last", Color: "#222", Icon: "tag", SortOrder: 100},
+		{Name: "First", Color: "#333", Icon: "tag", SortOrder: 10},
+	}
+	for _, c := range cats {
+		if err := d.CreateCategory(c); err != nil {
+			t.Fatalf("CreateCategory %q: %v", c.Name, err)
+		}
+	}
+
+	list, err := d.ListCategories()
+	if err != nil {
+		t.Fatalf("ListCategories: %v", err)
+	}
+
+	// Extract just the user-created names (seeded system categories come first
+	// or are interleaved by sort_order; find the three we inserted in order).
+	var got []string
+	for _, c := range list {
+		if c.Name == "First" || c.Name == "Middle" || c.Name == "Last" {
+			got = append(got, c.Name)
+		}
+	}
+	want := []string{"First", "Middle", "Last"}
+	if len(got) != len(want) {
+		t.Fatalf("user category count = %d, want %d; all: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestCountTransactionsByCategory(t *testing.T) {
 	d := newTestDB(t)
 	accID := insertTestAccount(t, d, "Acct")

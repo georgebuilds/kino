@@ -116,6 +116,42 @@ func TestRecalcBalance(t *testing.T) {
 	}
 }
 
+func TestGetAccount_Missing_ReturnsNilNil(t *testing.T) {
+	d := newTestDB(t)
+
+	got, err := d.GetAccount(99999)
+	if err != nil {
+		t.Fatalf("GetAccount(99999): %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetAccount(99999) = %+v, want nil", got)
+	}
+}
+
+func TestRecalcBalance_NoTransactions_SetsZero(t *testing.T) {
+	d := newTestDB(t)
+
+	a := &models.Account{Name: "NoTxAcct", Type: models.AccountChecking, BalanceCents: 999, Currency: "USD"}
+	if err := d.CreateAccount(a); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if err := d.RecalcBalance(a.ID); err != nil {
+		t.Fatalf("RecalcBalance: %v", err)
+	}
+
+	got, err := d.GetAccount(a.ID)
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetAccount returned nil")
+	}
+	if got.BalanceCents != 0 {
+		t.Fatalf("BalanceCents = %d, want 0 (no transactions)", got.BalanceCents)
+	}
+}
+
 func TestUpdateAccount(t *testing.T) {
 	d := newTestDB(t)
 

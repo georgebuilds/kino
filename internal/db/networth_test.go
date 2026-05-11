@@ -132,3 +132,112 @@ func TestGetNetWorthHistory_AssetAndLiability(t *testing.T) {
 		t.Fatalf("NetWorth = %d, want 4000", points[0].NetWorth)
 	}
 }
+
+func TestGetNetWorthHistory_DefaultsTo12_WhenZero(t *testing.T) {
+	d := newTestDB(t)
+
+	points, err := d.GetNetWorthHistory(0)
+	if err != nil {
+		t.Fatalf("GetNetWorthHistory(0): %v", err)
+	}
+	if len(points) != 12 {
+		t.Fatalf("len(points) = %d, want 12 (default when months=0)", len(points))
+	}
+}
+
+func TestGetNetWorthHistory_NoAccounts_ReturnsEmptyish(t *testing.T) {
+	d := newTestDB(t)
+
+	points, err := d.GetNetWorthHistory(3)
+	if err != nil {
+		t.Fatalf("GetNetWorthHistory(3) with no accounts: %v", err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("len(points) = %d, want 3", len(points))
+	}
+	for i, p := range points {
+		if p.Assets != 0 || p.Liabilities != 0 || p.NetWorth != 0 {
+			t.Fatalf("points[%d] = %+v, want all zeros (no accounts)", i, p)
+		}
+	}
+}
+
+func TestGetNetWorthHistory_IgnoresHiddenAccounts(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now()
+
+	hidden := &models.Account{Name: "Hidden", Type: models.AccountChecking, Currency: "USD", IsHidden: true}
+	if err := d.CreateAccount(hidden); err != nil {
+		t.Fatalf("CreateAccount hidden: %v", err)
+	}
+
+	// Transaction on the hidden account in the current month.
+	tx := &models.Transaction{
+		AccountID:   hidden.ID,
+		Date:        monthOffset(now, 0),
+		AmountCents: 99999,
+		Payee:       "invisible",
+	}
+	if err := d.CreateTransaction(tx); err != nil {
+		t.Fatalf("CreateTransaction: %v", err)
+	}
+	if err := d.RecalcBalance(hidden.ID); err != nil {
+		t.Fatalf("RecalcBalance: %v", err)
+	}
+
+	points, err := d.GetNetWorthHistory(1)
+	if err != nil {
+		t.Fatalf("GetNetWorthHistory: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("len(points) = %d, want 1", len(points))
+	}
+	if points[0].Assets != 0 {
+		t.Fatalf("Assets = %d, want 0 (hidden account excluded)", points[0].Assets)
+	}
+	if points[0].NetWorth != 0 {
+		t.Fatalf("NetWorth = %d, want 0 (hidden account excluded)", points[0].NetWorth)
+	}
+}
+
+func TestGetNetWorthHistory_OldTransactionsExcluded(t *testing.T) {
+	d := newTestDB(t)
+	now := time.Now()
+
+	a := &models.Account{Name: "OldTxAcct", Type: models.AccountChecking, Currency: "USD"}
+	if err := d.CreateAccount(a); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// A transaction 24 months ago — outside the 3-month window.
+	oldTx := &models.Transaction{
+		AccountID:   a.ID,
+		Date:        monthOffset(now, 24),
+		AmountCents: 1000,
+		Payee:       "old",
+	}
+	if err := d.CreateTransaction(oldTx); err != nil {
+		t.Fatalf("CreateTransaction old: %v", err)
+	}
+	if err := d.RecalcBalance(a.ID); err != nil {
+		t.Fatalf("RecalcBalance: %v", err)
+	}
+
+	// Current balance = 1000 (the old tx is the only one).
+	// GetNetWorthHistory(3) walks back 3 months from current.
+	// Since there are no transactions within the 3-month window,
+	// all three months should show the same balance of 1000.
+	points, err := d.GetNetWorthHistory(3)
+	if err != nil {
+		t.Fatalf("GetNetWorthHistory: %v", err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("len(points) = %d, want 3", len(points))
+	}
+	// All months should reflect the same current balance (old tx not in the window).
+	for i, p := range points {
+		if p.Assets != 1000 {
+			t.Fatalf("points[%d].Assets = %d, want 1000 (old tx affects balance but not in-window delta)", i, p.Assets)
+		}
+	}
+}

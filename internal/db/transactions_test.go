@@ -321,6 +321,444 @@ func TestMergeTransaction_OFXHashWins(t *testing.T) {
 	}
 }
 
+func TestUpdateTransaction_Persists(t *testing.T) {
+	d := newTestDB(t)
+	acc1 := insertTestAccount(t, d, "AccUpdate1")
+	acc2 := insertTestAccount(t, d, "AccUpdate2")
+
+	cat := &models.Category{Name: "UpdTxCat", Color: "#abc", Icon: "tag"}
+	if err := d.CreateCategory(cat); err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+
+	tx := &models.Transaction{
+		AccountID:   acc1,
+		Date:        mustDate(2025, 1, 1),
+		AmountCents: -100,
+		Payee:       "OldPayee",
+	}
+	if err := d.CreateTransaction(tx); err != nil {
+		t.Fatalf("CreateTransaction: %v", err)
+	}
+
+	tx.AccountID = acc2
+	tx.Date = mustDate(2025, 6, 15)
+	tx.AmountCents = -9999
+	tx.Payee = "NewPayee"
+	tx.PayeeNormalized = "newpayee"
+	tx.Notes = "updated notes"
+	tx.CategoryID = i64ptr(cat.ID)
+	tx.IsTransfer = true
+	tx.IsReconciled = true
+
+	if err := d.UpdateTransaction(tx); err != nil {
+		t.Fatalf("UpdateTransaction: %v", err)
+	}
+
+	got, err := d.GetTransaction(tx.ID)
+	if err != nil {
+		t.Fatalf("GetTransaction: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetTransaction returned nil after update")
+	}
+	if got.AccountID != acc2 || got.AmountCents != -9999 || got.Payee != "NewPayee" ||
+		got.PayeeNormalized != "newpayee" || got.Notes != "updated notes" ||
+		!got.IsTransfer || !got.IsReconciled {
+		t.Fatalf("UpdateTransaction did not persist: %+v", got)
+	}
+	if got.CategoryID == nil || *got.CategoryID != cat.ID {
+		t.Fatalf("CategoryID = %v, want %d", got.CategoryID, cat.ID)
+	}
+	if got.Date.Format("2006-01-02") != "2025-06-15" {
+		t.Fatalf("Date = %v, want 2025-06-15", got.Date)
+	}
+}
+
+func TestDeleteTransaction_Removes(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccDel")
+
+	tx := &models.Transaction{
+		AccountID:   acc,
+		Date:        mustDate(2025, 3, 1),
+		AmountCents: -500,
+		Payee:       "Gone",
+	}
+	if err := d.CreateTransaction(tx); err != nil {
+		t.Fatalf("CreateTransaction: %v", err)
+	}
+
+	if err := d.DeleteTransaction(tx.ID); err != nil {
+		t.Fatalf("DeleteTransaction: %v", err)
+	}
+
+	got, err := d.GetTransaction(tx.ID)
+	if err != nil {
+		t.Fatalf("GetTransaction: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetTransaction after delete = %+v, want nil", got)
+	}
+}
+
+func TestGetTransaction_Missing_ReturnsNilNil(t *testing.T) {
+	d := newTestDB(t)
+
+	got, err := d.GetTransaction(99999)
+	if err != nil {
+		t.Fatalf("GetTransaction(99999): %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetTransaction(99999) = %+v, want nil", got)
+	}
+}
+
+func TestListTransactions_AllFiltersCombined(t *testing.T) {
+	d := newTestDB(t)
+	acc1 := insertTestAccount(t, d, "AccFilter1")
+	acc2 := insertTestAccount(t, d, "AccFilter2")
+
+	cat := &models.Category{Name: "FilterCat", Color: "#abc", Icon: "tag"}
+	if err := d.CreateCategory(cat); err != nil {
+		t.Fatalf("CreateCategory: %v", err)
+	}
+
+	rows := []models.Transaction{
+		// Only this one should match all filters.
+		{AccountID: acc1, Date: mustDate(2025, 5, 10), AmountCents: -100, Payee: "Target Shop", CategoryID: i64ptr(cat.ID)},
+		// Wrong account.
+		{AccountID: acc2, Date: mustDate(2025, 5, 10), AmountCents: -100, Payee: "Target Shop", CategoryID: i64ptr(cat.ID)},
+		// Wrong category.
+		{AccountID: acc1, Date: mustDate(2025, 5, 10), AmountCents: -100, Payee: "Target Shop"},
+		// Outside date range.
+		{AccountID: acc1, Date: mustDate(2025, 4, 1), AmountCents: -100, Payee: "Target Shop", CategoryID: i64ptr(cat.ID)},
+		// Wrong payee (search miss).
+		{AccountID: acc1, Date: mustDate(2025, 5, 10), AmountCents: -100, Payee: "Other", CategoryID: i64ptr(cat.ID)},
+	}
+	for i := range rows {
+		if err := d.CreateTransaction(&rows[i]); err != nil {
+			t.Fatalf("create row %d: %v", i, err)
+		}
+	}
+
+	cid := cat.ID
+	page, err := d.ListTransactions(TxFilter{
+		AccountID:  &acc1,
+		CategoryID: &cid,
+		DateFrom:   "2025-05-01",
+		DateTo:     "2025-05-31",
+		Search:     "Target",
+	})
+	if err != nil {
+		t.Fatalf("ListTransactions: %v", err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("Total = %d, want 1", page.Total)
+	}
+	if page.Transactions[0].Payee != "Target Shop" {
+		t.Fatalf("Payee = %q, want %q", page.Transactions[0].Payee, "Target Shop")
+	}
+}
+
+func TestListTransactions_DateFromOnly(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccDateFrom")
+
+	rows := []models.Transaction{
+		{AccountID: acc, Date: mustDate(2025, 3, 1), AmountCents: -100, Payee: "old"},
+		{AccountID: acc, Date: mustDate(2025, 6, 1), AmountCents: -100, Payee: "new1"},
+		{AccountID: acc, Date: mustDate(2025, 6, 2), AmountCents: -100, Payee: "new2"},
+	}
+	for i := range rows {
+		if err := d.CreateTransaction(&rows[i]); err != nil {
+			t.Fatalf("create row %d: %v", i, err)
+		}
+	}
+
+	page, err := d.ListTransactions(TxFilter{DateFrom: "2025-06-01"})
+	if err != nil {
+		t.Fatalf("ListTransactions: %v", err)
+	}
+	if page.Total != 2 {
+		t.Fatalf("Total = %d, want 2", page.Total)
+	}
+}
+
+func TestListTransactions_DateToOnly(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccDateTo")
+
+	rows := []models.Transaction{
+		{AccountID: acc, Date: mustDate(2025, 3, 1), AmountCents: -100, Payee: "early"},
+		{AccountID: acc, Date: mustDate(2025, 6, 1), AmountCents: -100, Payee: "late1"},
+		{AccountID: acc, Date: mustDate(2025, 6, 2), AmountCents: -100, Payee: "late2"},
+	}
+	for i := range rows {
+		if err := d.CreateTransaction(&rows[i]); err != nil {
+			t.Fatalf("create row %d: %v", i, err)
+		}
+	}
+
+	page, err := d.ListTransactions(TxFilter{DateTo: "2025-03-31"})
+	if err != nil {
+		t.Fatalf("ListTransactions: %v", err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("Total = %d, want 1", page.Total)
+	}
+	if page.Transactions[0].Payee != "early" {
+		t.Fatalf("Payee = %q, want %q", page.Transactions[0].Payee, "early")
+	}
+}
+
+func TestEscapeLike_Backslash(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccBackslash")
+
+	// Payee containing a literal backslash.
+	tx := &models.Transaction{
+		AccountID:   acc,
+		Date:        mustDate(2025, 4, 1),
+		AmountCents: -100,
+		Payee:       `a\b`,
+	}
+	if err := d.CreateTransaction(tx); err != nil {
+		t.Fatalf("CreateTransaction: %v", err)
+	}
+	// Another row that should NOT match.
+	other := &models.Transaction{
+		AccountID:   acc,
+		Date:        mustDate(2025, 4, 2),
+		AmountCents: -100,
+		Payee:       "axb",
+	}
+	if err := d.CreateTransaction(other); err != nil {
+		t.Fatalf("CreateTransaction other: %v", err)
+	}
+
+	page, err := d.ListTransactions(TxFilter{Search: `a\b`})
+	if err != nil {
+		t.Fatalf("ListTransactions: %v", err)
+	}
+	if page.Total != 1 {
+		t.Fatalf(`Search "a\b": Total = %d, want 1`, page.Total)
+	}
+	if page.Transactions[0].Payee != `a\b` {
+		t.Fatalf(`Search "a\b": Payee = %q, want "a\\b"`, page.Transactions[0].Payee)
+	}
+}
+
+func TestBulkInsert_Empty_ReturnsZeros(t *testing.T) {
+	d := newTestDB(t)
+
+	ins, dupes, newIDs, err := d.BulkInsert(nil)
+	if err != nil {
+		t.Fatalf("BulkInsert(nil): %v", err)
+	}
+	if ins != 0 || dupes != 0 || len(newIDs) != 0 {
+		t.Fatalf("BulkInsert(nil) = (%d, %d, %v), want (0, 0, [])", ins, dupes, newIDs)
+	}
+}
+
+func TestBulkInsert_MixedNewAndDupes(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccBulkMixed")
+
+	rows := []models.Transaction{
+		{AccountID: acc, Date: mustDate(2025, 1, 1), AmountCents: -100, Payee: "p1", ImportHash: "mx-hash-1", ImportSource: "csv"},
+		{AccountID: acc, Date: mustDate(2025, 1, 2), AmountCents: -200, Payee: "p2", ImportHash: "mx-hash-2", ImportSource: "csv"},
+		{AccountID: acc, Date: mustDate(2025, 1, 3), AmountCents: -300, Payee: "p3", ImportHash: "mx-hash-3", ImportSource: "csv"},
+	}
+
+	// First batch: rows[0:2].
+	ins1, dupes1, ids1, err := d.BulkInsert(rows[0:2])
+	if err != nil {
+		t.Fatalf("first BulkInsert: %v", err)
+	}
+	if ins1 != 2 || dupes1 != 0 || len(ids1) != 2 {
+		t.Fatalf("first: ins=%d dupes=%d ids=%d, want 2/0/2", ins1, dupes1, len(ids1))
+	}
+
+	// Second batch: rows[0:3] — rows[0] and [1] are dupes, rows[2] is new.
+	ins2, dupes2, ids2, err := d.BulkInsert(rows[0:3])
+	if err != nil {
+		t.Fatalf("second BulkInsert: %v", err)
+	}
+	if ins2 != 1 || dupes2 != 2 || len(ids2) != 1 {
+		t.Fatalf("second: ins=%d dupes=%d ids=%d, want 1/2/1", ins2, dupes2, len(ids2))
+	}
+}
+
+func TestFindFuzzyDuplicates_Empty(t *testing.T) {
+	d := newTestDB(t)
+
+	dupes, err := d.FindFuzzyDuplicates(nil)
+	if err != nil {
+		t.Fatalf("FindFuzzyDuplicates(nil): %v", err)
+	}
+	if dupes != nil {
+		t.Fatalf("FindFuzzyDuplicates(nil) = %v, want nil", dupes)
+	}
+}
+
+func TestMergeTransaction_BothOFX_KeepsKeepHash(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccMergeOFX")
+
+	keep := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 4, 1), AmountCents: -500,
+		Payee: "K", ImportHash: "ofx-keep-hash", ImportSource: "ofx",
+	}
+	del := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 4, 1), AmountCents: -500,
+		Payee: "D", ImportHash: "ofx-del-hash", ImportSource: "ofx",
+	}
+	if err := d.CreateTransaction(keep); err != nil {
+		t.Fatalf("create keep: %v", err)
+	}
+	if err := d.CreateTransaction(del); err != nil {
+		t.Fatalf("create del: %v", err)
+	}
+
+	if err := d.MergeTransaction(keep.ID, del.ID); err != nil {
+		t.Fatalf("MergeTransaction: %v", err)
+	}
+
+	got, err := d.GetTransaction(keep.ID)
+	if err != nil {
+		t.Fatalf("GetTransaction: %v", err)
+	}
+	if got == nil {
+		t.Fatal("keep row missing after merge")
+	}
+	// Neither is CSV-vs-OFX; keep's hash should win.
+	if got.ImportHash != "ofx-keep-hash" {
+		t.Fatalf("ImportHash = %q, want %q (keep hash wins when both are OFX)", got.ImportHash, "ofx-keep-hash")
+	}
+}
+
+func TestMergeTransaction_KeepHasCategoryAndNotes_NotOverwritten(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccMergeKeep")
+
+	keepCat := &models.Category{Name: "KeepCat", Color: "#aaa", Icon: "tag"}
+	delCat := &models.Category{Name: "DelCat", Color: "#bbb", Icon: "tag"}
+	if err := d.CreateCategory(keepCat); err != nil {
+		t.Fatalf("create keepCat: %v", err)
+	}
+	if err := d.CreateCategory(delCat); err != nil {
+		t.Fatalf("create delCat: %v", err)
+	}
+
+	keep := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 5, 1), AmountCents: -750,
+		Payee: "K", Notes: "keep notes", CategoryID: i64ptr(keepCat.ID),
+		ImportHash: "k-hash", ImportSource: "csv",
+	}
+	del := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 5, 1), AmountCents: -750,
+		Payee: "D", Notes: "del notes", CategoryID: i64ptr(delCat.ID),
+		ImportHash: "d-hash", ImportSource: "csv",
+	}
+	if err := d.CreateTransaction(keep); err != nil {
+		t.Fatalf("create keep: %v", err)
+	}
+	if err := d.CreateTransaction(del); err != nil {
+		t.Fatalf("create del: %v", err)
+	}
+
+	if err := d.MergeTransaction(keep.ID, del.ID); err != nil {
+		t.Fatalf("MergeTransaction: %v", err)
+	}
+
+	got, err := d.GetTransaction(keep.ID)
+	if err != nil {
+		t.Fatalf("GetTransaction: %v", err)
+	}
+	if got == nil {
+		t.Fatal("keep row missing after merge")
+	}
+	if got.Notes != "keep notes" {
+		t.Fatalf("Notes = %q, want keep notes (keep's notes not overwritten)", got.Notes)
+	}
+	if got.CategoryID == nil || *got.CategoryID != keepCat.ID {
+		t.Fatalf("CategoryID = %v, want %d (keep's category not overwritten)", got.CategoryID, keepCat.ID)
+	}
+}
+
+func TestMergeTransaction_MissingKeepID_ReturnsError(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccMergeMissKeep")
+
+	del := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 1, 1), AmountCents: -100,
+		Payee: "D", ImportHash: "miss-del-hash", ImportSource: "csv",
+	}
+	if err := d.CreateTransaction(del); err != nil {
+		t.Fatalf("create del: %v", err)
+	}
+
+	err := d.MergeTransaction(99999, del.ID)
+	if err == nil {
+		t.Fatal("MergeTransaction(bogus keepID) returned nil, want error")
+	}
+}
+
+func TestMergeTransaction_MissingDeleteID_ReturnsError(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccMergeMissDel")
+
+	keep := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 1, 1), AmountCents: -100,
+		Payee: "K", ImportHash: "miss-keep-hash", ImportSource: "csv",
+	}
+	if err := d.CreateTransaction(keep); err != nil {
+		t.Fatalf("create keep: %v", err)
+	}
+
+	err := d.MergeTransaction(keep.ID, 99999)
+	if err == nil {
+		t.Fatal("MergeTransaction(valid keep, bogus deleteID) returned nil, want error")
+	}
+}
+
+func TestMergeTransaction_CSVtoCSV_KeepHashWins(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccMergeCSV")
+
+	keep := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 7, 1), AmountCents: -200,
+		Payee: "K", ImportHash: "csv-keep-hash", ImportSource: "csv",
+	}
+	del := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 7, 1), AmountCents: -200,
+		Payee: "D", ImportHash: "csv-del-hash", ImportSource: "csv",
+	}
+	if err := d.CreateTransaction(keep); err != nil {
+		t.Fatalf("create keep: %v", err)
+	}
+	if err := d.CreateTransaction(del); err != nil {
+		t.Fatalf("create del: %v", err)
+	}
+
+	if err := d.MergeTransaction(keep.ID, del.ID); err != nil {
+		t.Fatalf("MergeTransaction: %v", err)
+	}
+
+	got, err := d.GetTransaction(keep.ID)
+	if err != nil {
+		t.Fatalf("GetTransaction: %v", err)
+	}
+	if got == nil {
+		t.Fatal("keep row missing after merge")
+	}
+	// Both CSV: keep's hash wins (neither is ofx, keep hash is non-empty).
+	if got.ImportHash != "csv-keep-hash" {
+		t.Fatalf("ImportHash = %q, want %q (keep hash wins for CSV-to-CSV)", got.ImportHash, "csv-keep-hash")
+	}
+}
+
 func TestMergeTransaction_AdoptsDeleteCategoryAndNotesWhenKeepIsEmpty(t *testing.T) {
 	d := newTestDB(t)
 	acc := insertTestAccount(t, d, "A")

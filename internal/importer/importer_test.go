@@ -28,6 +28,17 @@ func TestParseAmount(t *testing.T) {
 		{"pure junk errors", "abc", 0, true},
 		{"pure punctuation errors", ".,", 0, true},
 		{"negative with currency", "-$45.00", -4500, false},
+		// Parentheses + currency symbol: both negative notation and $ stripping apply.
+		{"parens with currency", "($45.00)", -4500, false},
+		// Explicit zero string.
+		{"explicit zero", "0", 0, false},
+		// "1,56" has a comma but no dot, so the EU-detection branch (requires
+		// both '.' and ',') is not entered. The else branch strips the comma,
+		// leaving "156", which parses as 156 dollars = 15600 cents. This is
+		// acknowledged as a known quirk (see TODO in importer memory).
+		{"single-comma EU pure decimal treated as thousands-stripped", "1,56", 15600, false},
+		// strings.Map strips all Unicode letters, so "USD" prefix is removed.
+		{"multi-letter currency code stripped", "USD 12.00", 1200, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,6 +113,15 @@ func TestNormalizePayee(t *testing.T) {
 		{"leading star stripped", "*WALMART", "walmart"},
 		{"lower-casing", "MIXED Case Inc", "mixed case"},
 		{"trim outer whitespace", "  Acme  ", "acme"},
+		// reLegalSufx requires \s+ before the suffix, so "Acme Co." → "Acme" (space before Co. present).
+		{"legal suffix Co.", "Acme Co.", "acme"},
+		// Same pattern for Ltd.
+		{"legal suffix Ltd.", "Acme Ltd.", "acme"},
+		// strings.Trim removes leading/trailing chars in the set `*-_.,;"'`.
+		// After other normalisation steps "Acme..." becomes "acme..." → Trim removes trailing dots.
+		{"trailing punctuation trimmed", "Acme...", "acme"},
+		// strings.Trim removes the leading '-' because '-' is in the trim cutset.
+		{"leading dash trimmed", "-WALMART", "walmart"},
 	}
 	// Special case correction: reNonPrint replaces each non-ASCII byte
 	// (é is 2 UTF-8 bytes) with one space each, then reSpaces collapses

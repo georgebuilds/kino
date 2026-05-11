@@ -12,9 +12,12 @@ func TestParseCSV_HappyPath(t *testing.T) {
 2025-01-16,Paycheck Acme Inc.,2500.00
 2025-01-17,Walmart,-32.10
 `)
-	rows, err := ParseCSV(in, accountID)
+	rows, warnings, err := ParseCSV(in, accountID)
 	if err != nil {
 		t.Fatalf("ParseCSV unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
@@ -58,9 +61,12 @@ func TestParseCSV_DebitCreditSplit(t *testing.T) {
 2025-01-15,ATM Withdrawal,40.00,
 2025-01-16,Direct Deposit,,1500.00
 `)
-	rows, err := ParseCSV(in, 1)
+	rows, warnings, err := ParseCSV(in, 1)
 	if err != nil {
 		t.Fatalf("ParseCSV unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
@@ -74,17 +80,27 @@ func TestParseCSV_DebitCreditSplit(t *testing.T) {
 	}
 }
 
-func TestParseCSV_DebitAndCreditOnSameRow_Errors(t *testing.T) {
+func TestParseCSV_DebitAndCreditOnSameRow_Warns(t *testing.T) {
 	in := strings.NewReader(`Date,Description,Debit,Credit
-2025-01-15,Weird Row,10.00,20.00
+2025-01-15,Good Row,40.00,
+2025-01-16,Weird Row,10.00,20.00
+2025-01-17,Another Good Row,,99.00
 `)
-	_, err := ParseCSV(in, 1)
-	if err == nil {
-		t.Fatal("expected error for row with both debit and credit non-zero, got nil")
+	rows, warnings, err := ParseCSV(in, 1)
+	if err != nil {
+		t.Fatalf("ParseCSV unexpected error: %v", err)
 	}
-	// Should be wrapped as "row N: ..."
-	if !strings.Contains(err.Error(), "row ") {
-		t.Errorf("expected error to be wrapped with row number, got: %v", err)
+	if len(rows) != 2 {
+		t.Fatalf("expected the two valid rows to import, got %d rows: %+v", len(rows), rows)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected one warning, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "row 3") {
+		t.Errorf("expected warning to mention 'row 3', got: %v", warnings[0])
+	}
+	if !strings.Contains(warnings[0], "debit") || !strings.Contains(warnings[0], "credit") {
+		t.Errorf("expected warning to mention both debit and credit, got: %v", warnings[0])
 	}
 }
 
@@ -93,7 +109,7 @@ func TestParseCSV_NoHeader_Errors(t *testing.T) {
 	in := strings.NewReader(`foo,bar,baz
 1,2,3
 `)
-	_, err := ParseCSV(in, 1)
+	_, _, err := ParseCSV(in, 1)
 	if err == nil {
 		t.Fatal("expected error for CSV with no header row, got nil")
 	}
@@ -102,21 +118,26 @@ func TestParseCSV_NoHeader_Errors(t *testing.T) {
 	}
 }
 
-func TestParseCSV_BadDate_AbortsWithRowNumber(t *testing.T) {
-	// Header on line 1, first data row on line 2 (good), bad data row on line 3.
-	// Production formula: headerIdx + lineNo + 2.
-	// headerIdx = 0 (records index of header), lineNo = 1 (offset into allRecords for second data row),
-	// so reported row = 0 + 1 + 2 = 3.
+func TestParseCSV_BadDate_SkipsRowWithWarning(t *testing.T) {
+	// Header on line 1, good data row on line 2, bad data row on line 3.
+	// Warning line number = headerIdx + lineNo + 2 = 0 + 1 + 2 = 3.
 	in := strings.NewReader(`Date,Description,Amount
 2025-01-15,Good Row,-4.95
 not-a-date,Bad Row,-10.00
+2025-01-17,Another Good Row,-2.50
 `)
-	_, err := ParseCSV(in, 1)
-	if err == nil {
-		t.Fatal("expected error for bad date, got nil")
+	rows, warnings, err := ParseCSV(in, 1)
+	if err != nil {
+		t.Fatalf("ParseCSV unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "row 3") {
-		t.Errorf("expected error to mention 'row 3', got: %v", err)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 valid rows, got %d", len(rows))
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected one warning, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "row 3") {
+		t.Errorf("expected warning to mention 'row 3', got: %v", warnings[0])
 	}
 }
 

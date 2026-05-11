@@ -41,9 +41,12 @@ NEWFILEUID:NONE
 `
 
 func TestParseOFX_V1_Minimal(t *testing.T) {
-	rows, acctExtID, err := ParseOFX(strings.NewReader(ofxV1Minimal), 1)
+	rows, acctExtID, warnings, err := ParseOFX(strings.NewReader(ofxV1Minimal), 1)
 	if err != nil {
 		t.Fatalf("ParseOFX unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
@@ -102,9 +105,12 @@ func TestParseOFX_V1_LongSingleLine(t *testing.T) {
 	b.WriteString("</PAD>")
 	b.WriteString("</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>")
 
-	rows, acctExtID, err := ParseOFX(strings.NewReader(b.String()), 1)
+	rows, acctExtID, warnings, err := ParseOFX(strings.NewReader(b.String()), 1)
 	if err != nil {
 		t.Fatalf("ParseOFX unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if acctExtID != "987654321" {
 		t.Errorf("acctExtID = %q, want %q", acctExtID, "987654321")
@@ -162,9 +168,12 @@ const ofxV2Minimal = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 func TestParseOFX_V2_Minimal(t *testing.T) {
-	rows, acctExtID, err := ParseOFX(strings.NewReader(ofxV2Minimal), 1)
+	rows, acctExtID, warnings, err := ParseOFX(strings.NewReader(ofxV2Minimal), 1)
 	if err != nil {
 		t.Fatalf("ParseOFX unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if acctExtID != "111222333" {
 		t.Errorf("acctExtID = %q, want %q", acctExtID, "111222333")
@@ -228,9 +237,12 @@ func TestParseOFX_V2_MultipleStatementsDistinctACCTIDs(t *testing.T) {
   </CREDITCARDMSGSRSV1>
 </OFX>
 `
-	rows, firstAcctExtID, err := ParseOFX(strings.NewReader(input), 1)
+	rows, firstAcctExtID, warnings, err := ParseOFX(strings.NewReader(input), 1)
 	if err != nil {
 		t.Fatalf("ParseOFX unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows (one per statement), got %d", len(rows))
@@ -254,7 +266,7 @@ func TestParseOFX_V2_MultipleStatementsDistinctACCTIDs(t *testing.T) {
 	}
 }
 
-func TestParseOFX_V2_BadDate_ReturnsError(t *testing.T) {
+func TestParseOFX_V2_BadDate_SkipsTxWithWarning(t *testing.T) {
 	const input = `<?xml version="1.0" encoding="UTF-8"?>
 <OFX>
   <BANKMSGSRSV1>
@@ -262,6 +274,12 @@ func TestParseOFX_V2_BadDate_ReturnsError(t *testing.T) {
       <STMTRS>
         <BANKACCTFROM><ACCTID>ACCT-X</ACCTID></BANKACCTFROM>
         <BANKTRANLIST>
+          <STMTTRN>
+            <DTPOSTED>20250115</DTPOSTED>
+            <TRNAMT>-1.00</TRNAMT>
+            <FITID>GOOD-1</FITID>
+            <NAME>Good Tx</NAME>
+          </STMTTRN>
           <STMTTRN>
             <DTPOSTED>not-a-date</DTPOSTED>
             <TRNAMT>-1.00</TRNAMT>
@@ -274,13 +292,18 @@ func TestParseOFX_V2_BadDate_ReturnsError(t *testing.T) {
   </BANKMSGSRSV1>
 </OFX>
 `
-	_, _, err := ParseOFX(strings.NewReader(input), 1)
-	if err == nil {
-		t.Fatal("expected error for bad DTPOSTED, got nil")
+	rows, _, warnings, err := ParseOFX(strings.NewReader(input), 1)
+	if err != nil {
+		t.Fatalf("ParseOFX unexpected error: %v", err)
 	}
-	// Error should be wrapped with the FITID context.
-	if !strings.Contains(err.Error(), "BAD-DATE-1") {
-		t.Errorf("expected FITID %q in error message, got: %v", "BAD-DATE-1", err)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row (the good one), got %d", len(rows))
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "BAD-DATE-1") {
+		t.Errorf("expected FITID %q in warning, got: %v", "BAD-DATE-1", warnings[0])
 	}
 }
 

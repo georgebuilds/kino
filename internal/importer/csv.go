@@ -76,23 +76,28 @@ type colMap struct {
 
 const missing = -1
 
+// maxWarnings caps the warning slice so a totally bad file doesn't blow up memory.
+const maxWarnings = 20
+
 // ParseCSV reads r as a bank CSV export and returns rows ready for BulkInsert.
 // accountID is used when computing the content hash.
-func ParseCSV(r io.Reader, accountID int64) ([]Row, error) {
+//
+// Hard structural problems (no header row, missing required column, I/O error)
+// return an error. Per-row parse failures are collected into the warnings slice
+// and the bad row is skipped; the caller surfaces these to the user.
+func ParseCSV(r io.Reader, accountID int64) ([]Row, []string, error) {
 	cr := csv.NewReader(r)
 	cr.TrimLeadingSpace = true
 	cr.LazyQuotes = true
-
-	// Read until we find a header row (skip blank lines and comment lines)
-	var headers []string
-	var headerIdx int
-	var allRecords [][]string
+	cr.FieldsPerRecord = -1
 
 	records, err := cr.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("csv read: %w", err)
+		return nil, nil, fmt.Errorf("csv read: %w", err)
 	}
 
+	var headers []string
+	var headerIdx int
 	for i, rec := range records {
 		if looksLikeHeader(rec) {
 			headers = rec
@@ -101,28 +106,31 @@ func ParseCSV(r io.Reader, accountID int64) ([]Row, error) {
 		}
 	}
 	if headers == nil {
-		return nil, fmt.Errorf("csv: could not find a header row (expected columns like Date, Amount, Description)")
+		return nil, nil, fmt.Errorf("csv: could not find a header row (expected columns like Date, Amount, Description)")
 	}
-	allRecords = records[headerIdx+1:]
 
 	cm, err := detectColumns(headers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var rows []Row
-	for lineNo, rec := range allRecords {
+	var warnings []string
+	for lineNo, rec := range records[headerIdx+1:] {
 		if len(rec) == 0 || isBlankRow(rec) {
 			continue
 		}
 
 		row, err := parseCSVRow(rec, cm, accountID)
 		if err != nil {
-			return nil, fmt.Errorf("row %d: %w", headerIdx+lineNo+2, err)
+			if len(warnings) < maxWarnings {
+				warnings = append(warnings, fmt.Sprintf("row %d: %v", headerIdx+lineNo+2, err))
+			}
+			continue
 		}
 		rows = append(rows, row)
 	}
-	return rows, nil
+	return rows, warnings, nil
 }
 
 // looksLikeHeader returns true when a record contains at least one recognised

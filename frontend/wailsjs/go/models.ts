@@ -327,6 +327,7 @@ export namespace main {
 	    inserted: number;
 	    skipped: number;
 	    possibleDupes: db.PossibleDupe[];
+	    warnings: string[];
 	    fileName: string;
 	    source: string;
 	
@@ -339,6 +340,7 @@ export namespace main {
 	        this.inserted = source["inserted"];
 	        this.skipped = source["skipped"];
 	        this.possibleDupes = this.convertValues(source["possibleDupes"], db.PossibleDupe);
+	        this.warnings = source["warnings"];
 	        this.fileName = source["fileName"];
 	        this.source = source["source"];
 	    }

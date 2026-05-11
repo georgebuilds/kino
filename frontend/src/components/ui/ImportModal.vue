@@ -113,6 +113,19 @@
                 Review them below.
               </p>
             </div>
+
+            <div v-if="hasWarnings" class="warning-list">
+              <div class="warning-list__header">
+                <AlertTriangle :size="15" />
+                <span>
+                  {{ result!.warnings.length }}
+                  {{ result!.warnings.length === 1 ? 'row was' : 'rows were' }} skipped
+                </span>
+              </div>
+              <ul class="warning-list__items">
+                <li v-for="(w, i) in result!.warnings" :key="i">{{ w }}</li>
+              </ul>
+            </div>
           </div>
 
           <div class="modal__footer">
@@ -251,6 +264,7 @@ const resolvingDupe = ref(false)
 const resolveError  = ref<string | null>(null)
 
 const hasDupes    = computed(() => (result.value?.possibleDupes?.length ?? 0) > 0)
+const hasWarnings = computed(() => (result.value?.warnings?.length ?? 0) > 0)
 const currentDupe = computed(() => result.value?.possibleDupes?.[dupeIdx.value] ?? null)
 
 // ── Import ────────────────────────────────────────────────────────────────────
@@ -472,6 +486,27 @@ function formatDate(d: any) {
   font: var(--text-body-sm); color: var(--color-text-secondary); line-height: 1.5;
 }
 .dupe-warning__icon { color: var(--color-accent); flex-shrink: 0; margin-top: 1px; }
+
+/* Skipped-row warnings list */
+.warning-list {
+  background: rgba(196,148,58,0.06);
+  border: 1px solid rgba(196,148,58,0.2);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font: var(--text-body-sm); color: var(--color-text-secondary);
+}
+.warning-list__header {
+  display: flex; align-items: center; gap: var(--space-2);
+  color: var(--color-accent); font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+.warning-list__items {
+  list-style: disc; padding-left: var(--space-5);
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 140px; overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.5;
+}
 
 /* Dupe pair comparison */
 .dupe-pair {

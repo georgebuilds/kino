@@ -14,15 +14,17 @@ import (
 // accountID is the Kino account the user chose.
 // accountExternalID is the <ACCTID> from the file (used in the hash so that
 // the same FITID from two different bank accounts never collide).
-func ParseOFX(r io.Reader, accountID int64) ([]Row, string, error) {
+//
+// Per-transaction parse failures (missing FITID, bad date, etc.) are collected
+// into the warnings slice; structural failures (missing <OFX> element, XML
+// parse error) return an error.
+func ParseOFX(r io.Reader, accountID int64) ([]Row, string, []string, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	s := string(data)
 
-	// OFX 2.x starts with an XML declaration or <OFX> directly.
-	// OFX 1.x starts with "OFXHEADER:100" or similar key:value headers.
 	if isOFXv2(s) {
 		return parseOFXv2([]byte(s), accountID)
 	}
@@ -40,14 +42,13 @@ func isOFXv2(s string) bool {
 // OFX 1.x is SGML: tags don't need closing tags, values follow on the same line
 // as the opening tag:  <TRNAMT>-45.23
 
-func parseOFXv1(s string, accountID int64) ([]Row, string, error) {
-	// Extract the SGML body (skip the key:value header block)
+func parseOFXv1(s string, accountID int64) ([]Row, string, []string, error) {
 	bodyStart := strings.Index(s, "<OFX>")
 	if bodyStart == -1 {
 		bodyStart = strings.Index(s, "<ofx>")
 	}
 	if bodyStart == -1 {
-		return nil, "", fmt.Errorf("ofx: cannot find <OFX> element")
+		return nil, "", nil, fmt.Errorf("ofx: cannot find <OFX> element")
 	}
 	body := s[bodyStart:]
 
@@ -59,7 +60,9 @@ func parseOFXv1(s string, accountID int64) ([]Row, string, error) {
 	}
 
 	var rows []Row
+	var warnings []string
 	inTx := false
+	txIdx := 0
 	var cur ofxRow
 
 	for _, tok := range tags {
@@ -69,8 +72,17 @@ func parseOFXv1(s string, accountID int64) ([]Row, string, error) {
 			cur = ofxRow{}
 		case "/STMTTRN":
 			if inTx {
+				txIdx++
 				row, err := cur.toRow(accountID, acctID)
-				if err == nil {
+				if err != nil {
+					if len(warnings) < maxWarnings {
+						label := cur.fitid
+						if label == "" {
+							label = fmt.Sprintf("#%d", txIdx)
+						}
+						warnings = append(warnings, fmt.Sprintf("transaction %s: %v", label, err))
+					}
+				} else {
 					rows = append(rows, row)
 				}
 				inTx = false
@@ -81,7 +93,7 @@ func parseOFXv1(s string, accountID int64) ([]Row, string, error) {
 			}
 		}
 	}
-	return rows, acctID, nil
+	return rows, acctID, warnings, nil
 }
 
 type ofxToken struct{ tag, val string }
@@ -233,8 +245,7 @@ type txXML struct {
 	Memo     string `xml:"MEMO"`
 }
 
-func parseOFXv2(data []byte, accountID int64) ([]Row, string, error) {
-	// Some QFX files have a processing instruction we need to strip
+func parseOFXv2(data []byte, accountID int64) ([]Row, string, []string, error) {
 	s := string(data)
 	if i := strings.Index(s, "<OFX>"); i > 0 {
 		data = []byte(s[i:])
@@ -242,15 +253,16 @@ func parseOFXv2(data []byte, accountID int64) ([]Row, string, error) {
 
 	var doc ofxXML
 	if err := xml.Unmarshal(data, &doc); err != nil {
-		return nil, "", fmt.Errorf("ofx xml: %w", err)
+		return nil, "", nil, fmt.Errorf("ofx xml: %w", err)
 	}
 
 	stmts := append(doc.BankMsg.Stmts, doc.CCMsg.Stmts...)
 	if len(stmts) == 0 {
-		return nil, "", fmt.Errorf("ofx: no statement found")
+		return nil, "", nil, fmt.Errorf("ofx: no statement found")
 	}
 
 	var rows []Row
+	var warnings []string
 	var firstAcctExtID string
 	for _, stmt := range stmts {
 		acctExtID := stmt.AcctID
@@ -270,10 +282,17 @@ func parseOFXv2(data []byte, accountID int64) ([]Row, string, error) {
 			}
 			row, err := o.toRow(accountID, acctExtID)
 			if err != nil {
-				return nil, "", fmt.Errorf("ofx tx FITID=%q: %w", tx.FITID, err)
+				if len(warnings) < maxWarnings {
+					label := tx.FITID
+					if label == "" {
+						label = "(no FITID)"
+					}
+					warnings = append(warnings, fmt.Sprintf("transaction %s: %v", label, err))
+				}
+				continue
 			}
 			rows = append(rows, row)
 		}
 	}
-	return rows, firstAcctExtID, nil
+	return rows, firstAcctExtID, warnings, nil
 }

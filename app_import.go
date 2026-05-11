@@ -18,11 +18,12 @@ import (
 
 // ImportResult is returned to the frontend after every import operation.
 type ImportResult struct {
-	Inserted      int              `json:"inserted"`
-	Skipped       int              `json:"skipped"`       // exact-hash duplicates
+	Inserted      int               `json:"inserted"`
+	Skipped       int               `json:"skipped"`       // exact-hash duplicates
 	PossibleDupes []db.PossibleDupe `json:"possibleDupes"` // fuzzy matches for review
-	FileName      string           `json:"fileName"`
-	Source        string           `json:"source"` // "csv" or "ofx"
+	Warnings      []string          `json:"warnings"`      // skipped rows with reasons
+	FileName      string            `json:"fileName"`
+	Source        string            `json:"source"` // "csv" or "ofx"
 }
 
 // DupeAction is the user's decision about a possible duplicate pair.
@@ -84,12 +85,12 @@ func (a *App) importCSVFromPath(accountID int64, path string) (ImportResult, err
 	}
 	defer f.Close()
 
-	rows, err := importer.ParseCSV(f, accountID)
+	rows, warnings, err := importer.ParseCSV(f, accountID)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("parse CSV: %w", err)
 	}
 
-	return a.bulkImport(accountID, rows, "csv", filepath.Base(path))
+	return a.bulkImport(accountID, rows, warnings, "csv", filepath.Base(path))
 }
 
 func (a *App) importOFXFromPath(accountID int64, path string) (ImportResult, error) {
@@ -99,17 +100,17 @@ func (a *App) importOFXFromPath(accountID int64, path string) (ImportResult, err
 	}
 	defer f.Close()
 
-	rows, _, err := importer.ParseOFX(f, accountID)
+	rows, _, warnings, err := importer.ParseOFX(f, accountID)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("parse OFX: %w", err)
 	}
 
-	return a.bulkImport(accountID, rows, "ofx", filepath.Base(path))
+	return a.bulkImport(accountID, rows, warnings, "ofx", filepath.Base(path))
 }
 
-func (a *App) bulkImport(accountID int64, rows []importer.Row, source, fileName string) (ImportResult, error) {
+func (a *App) bulkImport(accountID int64, rows []importer.Row, warnings []string, source, fileName string) (ImportResult, error) {
 	if len(rows) == 0 {
-		return ImportResult{FileName: fileName, Source: source}, nil
+		return ImportResult{FileName: fileName, Source: source, Warnings: warnings}, nil
 	}
 
 	// Convert importer.Row → models.Transaction
@@ -150,6 +151,7 @@ func (a *App) bulkImport(accountID int64, rows []importer.Row, source, fileName 
 		return ImportResult{
 			Inserted: inserted,
 			Skipped:  skipped,
+			Warnings: warnings,
 			FileName: fileName,
 			Source:   source,
 		}, fmt.Errorf("find fuzzy duplicates: %w", err)
@@ -159,6 +161,7 @@ func (a *App) bulkImport(accountID int64, rows []importer.Row, source, fileName 
 		Inserted:      inserted,
 		Skipped:       skipped,
 		PossibleDupes: dupes,
+		Warnings:      warnings,
 		FileName:      fileName,
 		Source:        source,
 	}, nil

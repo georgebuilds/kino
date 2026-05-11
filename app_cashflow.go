@@ -56,14 +56,15 @@ func (a *App) GetCashFlow(year, month int) (CashFlow, error) {
 	dateTo := fmt.Sprintf("%04d-%02d-01", ny, nm)
 
 	// ── Income by category ────────────────────────────────────────────────
+	// NULL-category rows are bucketed into the seeded "Uncategorized" category (id 12).
 	iRows, err := a.db.Query(`
 		SELECT
-			COALESCE(CAST(c.id AS TEXT), 'none') AS cat_id,
-			COALESCE(c.name, 'Uncategorized')    AS cat_name,
-			COALESCE(c.color, '#5A6B60')         AS cat_color,
-			SUM(t.amount_cents)                   AS total
+			CAST(c.id AS TEXT) AS cat_id,
+			c.name             AS cat_name,
+			c.color            AS cat_color,
+			SUM(t.amount_cents) AS total
 		FROM transactions t
-		LEFT JOIN categories c ON c.id = t.category_id
+		JOIN categories c ON c.id = COALESCE(t.category_id, 12)
 		WHERE t.date >= ? AND t.date < ?
 		  AND t.amount_cents > 0
 		  AND t.is_transfer = 0
@@ -93,14 +94,15 @@ func (a *App) GetCashFlow(year, month int) (CashFlow, error) {
 	}
 
 	// ── Expenses by category ──────────────────────────────────────────────
+	// NULL-category rows are bucketed into the seeded "Uncategorized" category (id 12).
 	eRows, err := a.db.Query(`
 		SELECT
-			COALESCE(CAST(c.id AS TEXT), 'none') AS cat_id,
-			COALESCE(c.name, 'Uncategorized')    AS cat_name,
-			COALESCE(c.color, '#5A6B60')         AS cat_color,
-			SUM(-t.amount_cents)                  AS total
+			CAST(c.id AS TEXT) AS cat_id,
+			c.name             AS cat_name,
+			c.color            AS cat_color,
+			SUM(-t.amount_cents) AS total
 		FROM transactions t
-		LEFT JOIN categories c ON c.id = t.category_id
+		JOIN categories c ON c.id = COALESCE(t.category_id, 12)
 		WHERE t.date >= ? AND t.date < ?
 		  AND t.amount_cents < 0
 		  AND t.is_transfer = 0

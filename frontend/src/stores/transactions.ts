@@ -33,24 +33,45 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
+  let seq = 0
+
   async function fetch() {
-    if (loading.value) return
+    const my = ++seq
     loading.value = true
     error.value   = null
     try {
       const page = await ListTransactions(filter.value)
+      if (my !== seq) return
       transactions.value = page.transactions
       total.value        = page.total
     } catch (e: any) {
+      if (my !== seq) return
       error.value = e?.message ?? 'Failed to load transactions'
     } finally {
-      loading.value = false
+      if (my === seq) loading.value = false
+    }
+  }
+
+  async function fetchMore() {
+    const my = ++seq
+    loading.value = true
+    error.value   = null
+    try {
+      const page = await ListTransactions(filter.value)
+      if (my !== seq) return
+      transactions.value = [...transactions.value, ...page.transactions]
+      total.value        = page.total
+    } catch (e: any) {
+      if (my !== seq) return
+      error.value = e?.message ?? 'Failed to load transactions'
+    } finally {
+      if (my === seq) loading.value = false
     }
   }
 
   async function fetchNextPage() {
-    filter.value.offset = (filter.value.offset ?? 0) + DEFAULT_LIMIT
-    await fetch()
+    filter.value.offset = transactions.value.length
+    await fetchMore()
   }
 
   function resetFilter() {
@@ -87,7 +108,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
   return {
     transactions, total, loading, error, filter,
-    fetch, fetchNextPage, resetFilter,
+    fetch, fetchMore, fetchNextPage, resetFilter,
     create, update, remove,
   }
 })

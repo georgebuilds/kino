@@ -251,7 +251,6 @@ func (db *DB) FindFuzzyDuplicates(newIDs []int64) ([]PossibleDupe, error) {
 			AND o.id           != n.id
 			AND o.id           NOT IN (%s)
 		WHERE n.id IN (%s)
-		GROUP BY n.id, o.id
 		ORDER BY n.id, o.id
 	`, placeholders, placeholders)
 
@@ -333,20 +332,19 @@ func (db *DB) MergeTransaction(keepID, deleteID int64) error {
 	}()
 
 	// Fetch both rows
-	var keepHash, deleteHash string
+	var keepHash, keepSource, keepNotes string
 	var keepCatID sql.NullInt64
-	var keepNotes string
 	if err = tx.QueryRow(
-		`SELECT import_hash, category_id, notes FROM transactions WHERE id = ?`, keepID,
-	).Scan(&keepHash, &keepCatID, &keepNotes); err != nil {
+		`SELECT import_hash, import_source, category_id, notes FROM transactions WHERE id = ?`, keepID,
+	).Scan(&keepHash, &keepSource, &keepCatID, &keepNotes); err != nil {
 		return fmt.Errorf("keep row: %w", err)
 	}
 
+	var deleteHash, deleteSource, deleteNotes string
 	var deleteCatID sql.NullInt64
-	var deleteNotes string
 	if err = tx.QueryRow(
-		`SELECT import_hash, category_id, notes FROM transactions WHERE id = ?`, deleteID,
-	).Scan(&deleteHash, &deleteCatID, &deleteNotes); err != nil {
+		`SELECT import_hash, import_source, category_id, notes FROM transactions WHERE id = ?`, deleteID,
+	).Scan(&deleteHash, &deleteSource, &deleteCatID, &deleteNotes); err != nil {
 		return fmt.Errorf("delete row: %w", err)
 	}
 
@@ -363,15 +361,18 @@ func (db *DB) MergeTransaction(keepID, deleteID int64) error {
 
 	// The OFX hash should win: it's bank-stable and will be used in future syncs.
 	// If neither is OFX (e.g. two CSV imports), keep the existing hash.
-	var keepSource, deleteSource string
-	_ = tx.QueryRow(`SELECT import_source FROM transactions WHERE id = ?`, keepID).Scan(&keepSource)
-	_ = tx.QueryRow(`SELECT import_source FROM transactions WHERE id = ?`, deleteID).Scan(&deleteSource)
 
 	winningHash := keepHash
 	if deleteSource == "ofx" && keepSource != "ofx" {
 		winningHash = deleteHash
 	} else if keepHash == "" && deleteHash != "" {
 		winningHash = deleteHash
+	}
+
+	// Delete first so the partial UNIQUE(import_hash) index doesn't trip when
+	// the keep row adopts the delete row's hash.
+	if _, err = tx.Exec(`DELETE FROM transactions WHERE id = ?`, deleteID); err != nil {
+		return err
 	}
 
 	if _, err = tx.Exec(`
@@ -382,10 +383,6 @@ func (db *DB) MergeTransaction(keepID, deleteID int64) error {
 			updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ','now')
 		WHERE id = ?
 	`, winningHash, newCatID, newNotes, keepID); err != nil {
-		return err
-	}
-
-	if _, err = tx.Exec(`DELETE FROM transactions WHERE id = ?`, deleteID); err != nil {
 		return err
 	}
 
@@ -416,11 +413,18 @@ func buildTxWhere(f TxFilter) ([]string, []any) {
 		args = append(args, f.DateTo)
 	}
 	if f.Search != "" {
-		conds = append(conds, "(payee LIKE ? OR payee_normalized LIKE ? OR notes LIKE ?)")
-		q := "%" + f.Search + "%"
+		conds = append(conds, `(payee LIKE ? ESCAPE '\' OR payee_normalized LIKE ? ESCAPE '\' OR notes LIKE ? ESCAPE '\')`)
+		q := "%" + escapeLike(f.Search) + "%"
 		args = append(args, q, q, q)
 	}
 	return conds, args
+}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }
 
 func scanTransaction(s scanner) (models.Transaction, error) {

@@ -9,35 +9,19 @@ import (
 )
 
 func (db *DB) ListAccounts() ([]models.Account, error) {
-	rows, err := db.Query(`
-		SELECT id, name, type, institution, balance_cents, currency,
-		       is_hidden, sort_order, last_synced_at, created_at, updated_at
-		FROM accounts
-		WHERE is_hidden = 0
-		ORDER BY sort_order, id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []models.Account
-	for rows.Next() {
-		a, err := scanAccount(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
+	return db.listAccounts(false)
 }
 
-func (db *DB) ListAllAccounts() ([]models.Account, error) {
-	rows, err := db.Query(`
-		SELECT id, name, type, institution, balance_cents, currency,
-		       is_hidden, sort_order, last_synced_at, created_at, updated_at
-		FROM accounts ORDER BY sort_order, id
-	`)
+func (db *DB) listAccounts(includeHidden bool) ([]models.Account, error) {
+	q := `SELECT id, name, type, institution, balance_cents, currency,
+	             is_hidden, sort_order, last_synced_at, created_at, updated_at
+	      FROM accounts`
+	if !includeHidden {
+		q += ` WHERE is_hidden = 0`
+	}
+	q += ` ORDER BY sort_order, id`
+
+	rows, err := db.Query(q)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +85,7 @@ func (db *DB) UpdateAccount(a *models.Account) error {
 }
 
 func (db *DB) DeleteAccount(id int64) error {
-	_, err := db.Exec(`DELETE FROM accounts WHERE id = ? AND is_system = 0`, id)
+	_, err := db.Exec(`DELETE FROM accounts WHERE id = ?`, id)
 	return err
 }
 

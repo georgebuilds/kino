@@ -297,8 +297,7 @@ const hasActiveFilters = computed(() =>
 
 // ── Load more ─────────────────────────────────────────────────────────────────
 function loadMore() {
-  txStore.filter.offset = txStore.transactions.length
-  txStore.fetch()
+  txStore.fetchNextPage()
 }
 
 // ── Grouping by date ──────────────────────────────────────────────────────────
@@ -336,10 +335,11 @@ function formatMoney(cents: number) {
 
 function formatGroupDate(iso: string) {
   const d     = new Date(iso + 'T12:00:00') // noon avoids DST shift
+  const localToday = (x: Date) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`
   const today = new Date()
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
-  if (iso === today.toISOString().substring(0, 10))     return 'Today'
-  if (iso === yesterday.toISOString().substring(0, 10)) return 'Yesterday'
+  if (iso === localToday(today))     return 'Today'
+  if (iso === localToday(yesterday)) return 'Yesterday'
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 }
 

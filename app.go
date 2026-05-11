@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -109,14 +112,65 @@ func (a *App) MoveFile() (FileState, error) {
 	a.db = nil
 
 	if err := os.Rename(oldPath, newPath); err != nil {
-		// Re-open the original if move failed.
-		if reopened, rerr := db.Open(oldPath); rerr == nil {
-			a.db = reopened
+		if isCrossDeviceErr(err) {
+			if cerr := copyFileContents(oldPath, newPath); cerr != nil {
+				if reopened, rerr := db.Open(oldPath); rerr == nil {
+					a.db = reopened
+				}
+				return FileState{}, fmt.Errorf("move failed: %w", cerr)
+			}
+			if rerr := os.Remove(oldPath); rerr != nil {
+				runtime.LogWarningf(a.ctx, "move: copied to %s but failed to remove %s: %v", newPath, oldPath, rerr)
+			}
+		} else {
+			if reopened, rerr := db.Open(oldPath); rerr == nil {
+				a.db = reopened
+			}
+			return FileState{}, fmt.Errorf("move failed: %w", err)
 		}
-		return FileState{}, fmt.Errorf("move failed: %w", err)
 	}
 
 	return a.openPath(newPath, false)
+}
+
+func isCrossDeviceErr(err error) bool {
+	if errors.Is(err, syscall.EXDEV) {
+		return true
+	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) && errors.Is(linkErr.Err, syscall.EXDEV) {
+		return true
+	}
+	return false
+}
+
+func copyFileContents(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
 }
 
 // CloudFolderSuggestions returns paths to common cloud-synced folders that

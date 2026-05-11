@@ -118,9 +118,7 @@ func ParseCSV(r io.Reader, accountID int64) ([]Row, error) {
 
 		row, err := parseCSVRow(rec, cm, accountID)
 		if err != nil {
-			// Skip unparseable rows but don't abort the whole import
-			_ = lineNo
-			continue
+			return nil, fmt.Errorf("row %d: %w", headerIdx+lineNo+2, err)
 		}
 		rows = append(rows, row)
 	}
@@ -216,22 +214,33 @@ func parseCSVRow(rec []string, cm colMap, accountID int64) (Row, error) {
 		}
 	} else {
 		// Separate debit/credit columns
-		debitStr  := safeGet(rec, cm.debit)
+		debitStr := safeGet(rec, cm.debit)
 		creditStr := safeGet(rec, cm.credit)
 
-		if debitStr != "" && debitStr != "0" && debitStr != "0.00" {
+		var debitCents, creditCents int64
+		if debitStr != "" {
 			v, e := ParseAmount(debitStr)
 			if e != nil {
 				return Row{}, e
 			}
-			cents = -abs(v) // debit = money out = negative
+			debitCents = v
 		}
-		if creditStr != "" && creditStr != "0" && creditStr != "0.00" {
+		if creditStr != "" {
 			v, e := ParseAmount(creditStr)
 			if e != nil {
 				return Row{}, e
 			}
-			cents = abs(v) // credit = money in = positive
+			creditCents = v
+		}
+
+		if debitCents != 0 && creditCents != 0 {
+			return Row{}, fmt.Errorf("row has both debit %q and credit %q", debitStr, creditStr)
+		}
+		switch {
+		case debitCents != 0:
+			cents = -abs(debitCents) // debit = money out = negative
+		case creditCents != 0:
+			cents = abs(creditCents) // credit = money in = positive
 		}
 	}
 

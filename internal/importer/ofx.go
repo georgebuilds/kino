@@ -1,7 +1,6 @@
 package importer
 
 import (
-	"bufio"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -89,23 +88,30 @@ type ofxToken struct{ tag, val string }
 
 func tokeniseOFX1(s string) []ofxToken {
 	var tokens []ofxToken
-	scanner := bufio.NewScanner(strings.NewReader(s))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "<") {
-			continue
+	i := 0
+	for i < len(s) {
+		lt := strings.IndexByte(s[i:], '<')
+		if lt == -1 {
+			break
 		}
-		end := strings.Index(line, ">")
-		if end == -1 {
-			continue
+		start := i + lt
+		gt := strings.IndexByte(s[start:], '>')
+		if gt == -1 {
+			break
 		}
-		tag := strings.ToUpper(line[1:end])
-		val := strings.TrimSpace(line[end+1:])
-		// Strip any inline closing tag on the value (e.g. "<NAME>Foo</NAME>")
-		if ci := strings.Index(val, "</"); ci != -1 {
-			val = val[:ci]
+		tagEnd := start + gt
+		tag := strings.ToUpper(strings.TrimSpace(s[start+1 : tagEnd]))
+		// Find the value end: next '<' or newline
+		valStart := tagEnd + 1
+		valEnd := len(s)
+		if nl := strings.IndexAny(s[valStart:], "<\r\n"); nl != -1 {
+			valEnd = valStart + nl
 		}
-		tokens = append(tokens, ofxToken{tag: tag, val: val})
+		val := strings.TrimSpace(s[valStart:valEnd])
+		if tag != "" {
+			tokens = append(tokens, ofxToken{tag: tag, val: val})
+		}
+		i = valEnd
 	}
 	return tokens
 }
@@ -244,13 +250,16 @@ func parseOFXv2(data []byte, accountID int64) ([]Row, string, error) {
 		return nil, "", fmt.Errorf("ofx: no statement found")
 	}
 
-	acctExtID := stmts[0].AcctID
-	if acctExtID == "" {
-		acctExtID = fmt.Sprintf("account-%d", accountID)
-	}
-
 	var rows []Row
+	var firstAcctExtID string
 	for _, stmt := range stmts {
+		acctExtID := stmt.AcctID
+		if acctExtID == "" {
+			acctExtID = fmt.Sprintf("account-%d", accountID)
+		}
+		if firstAcctExtID == "" {
+			firstAcctExtID = acctExtID
+		}
 		for _, tx := range stmt.Txs {
 			o := ofxRow{
 				fitid:    tx.FITID,
@@ -261,17 +270,10 @@ func parseOFXv2(data []byte, accountID int64) ([]Row, string, error) {
 			}
 			row, err := o.toRow(accountID, acctExtID)
 			if err != nil {
-				continue
+				return nil, "", fmt.Errorf("ofx tx FITID=%q: %w", tx.FITID, err)
 			}
 			rows = append(rows, row)
 		}
 	}
-	return rows, acctExtID, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	return rows, firstAcctExtID, nil
 }

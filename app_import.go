@@ -78,7 +78,7 @@ func (a *App) PickAndImportOFX(accountID int64) (ImportResult, error) {
 // ── Internal import helpers ───────────────────────────────────────────────────
 
 func (a *App) importCSVFromPath(accountID int64, path string) (ImportResult, error) {
-	f, err := openOSFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -93,7 +93,7 @@ func (a *App) importCSVFromPath(accountID int64, path string) (ImportResult, err
 }
 
 func (a *App) importOFXFromPath(accountID int64, path string) (ImportResult, error) {
-	f, err := openOSFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -147,8 +147,12 @@ func (a *App) bulkImport(accountID int64, rows []importer.Row, source, fileName 
 	// Fuzzy duplicate check
 	dupes, err := a.db.FindFuzzyDuplicates(newIDs)
 	if err != nil {
-		// Non-fatal — import already succeeded
-		dupes = nil
+		return ImportResult{
+			Inserted: inserted,
+			Skipped:  skipped,
+			FileName: fileName,
+			Source:   source,
+		}, fmt.Errorf("find fuzzy duplicates: %w", err)
 	}
 
 	return ImportResult{
@@ -188,13 +192,17 @@ func (a *App) ResolveDuplicate(action string, keepID, deleteID int64) error {
 		return nil
 
 	case DupeMerge:
-		return a.db.MergeTransaction(keepID, deleteID)
+		if err := a.db.MergeTransaction(keepID, deleteID); err != nil {
+			return err
+		}
+		if tx, err := a.db.GetTransaction(keepID); err == nil && tx != nil {
+			if err := a.db.RecalcBalance(tx.AccountID); err != nil {
+				return err
+			}
+		}
+		return nil
 
 	default:
 		return fmt.Errorf("unknown action %q (want: keep_both, delete_new, merge)", action)
 	}
-}
-
-func openOSFile(path string) (*os.File, error) {
-	return os.Open(path)
 }

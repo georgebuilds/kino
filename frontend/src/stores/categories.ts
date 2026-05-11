@@ -37,10 +37,10 @@ export const useCategoriesStore = defineStore('categories', () => {
    * Their children at depth 1, grandchildren at depth 2.
    * Any deeper nodes are silently attached at depth 2 (shouldn't happen).
    */
-  const tree = computed<CategoryNode[]>(() => {
-    const byId  = new Map<number, Category>(categories.value.map(c => [c.id, c]))
+  const treeAndDepth = computed<{ tree: CategoryNode[]; depthById: Map<number, number> }>(() => {
     const roots: CategoryNode[] = []
     const nodeById = new Map<number, CategoryNode>()
+    const depthById = new Map<number, number>()
 
     // Build node objects — two passes: roots first, then children
     for (const cat of categories.value) {
@@ -64,6 +64,7 @@ export const useCategoriesStore = defineStore('categories', () => {
           roots.push(node)
         }
       }
+      depthById.set(cat.id, node.depth)
     }
 
     // Sort by sort_order then id at each level
@@ -72,21 +73,15 @@ export const useCategoriesStore = defineStore('categories', () => {
       nodes.forEach(n => sort(n.children))
     }
     sort(roots)
-    void byId  // silence unused-var lint
-    return roots
+    return { tree: roots, depthById }
   })
+
+  const tree = computed<CategoryNode[]>(() => treeAndDepth.value.tree)
+  const depthByIdMap = computed<Map<number, number>>(() => treeAndDepth.value.depthById)
 
   /** Depth of a category by id (0 = root, 1 = child, 2 = grandchild). */
   function depth(id: number): number {
-    const find = (nodes: CategoryNode[]): number => {
-      for (const n of nodes) {
-        if (n.cat.id === id) return n.depth
-        const d = find(n.children)
-        if (d !== -1) return d
-      }
-      return -1
-    }
-    return Math.max(0, find(tree.value))
+    return depthByIdMap.value.get(id) ?? 0
   }
 
   /**
@@ -156,7 +151,6 @@ export const useCategoriesStore = defineStore('categories', () => {
   async function create(draft: Omit<Category, 'id' | 'isSystem'>) {
     const created = await CreateCategory(draft as Category)
     categories.value.push(created)
-    categories.value = [...categories.value] // trigger reactivity
     return created
   }
 
@@ -164,7 +158,6 @@ export const useCategoriesStore = defineStore('categories', () => {
     await UpdateCategory(cat)
     const idx = categories.value.findIndex(c => c.id === cat.id)
     if (idx !== -1) categories.value[idx] = cat
-    categories.value = [...categories.value]
   }
 
   async function remove(id: number) {

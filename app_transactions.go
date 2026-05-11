@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+
 	"kino/internal/db"
 	"kino/internal/models"
 )
@@ -34,7 +36,9 @@ func (a *App) CreateTransaction(t models.Transaction) (models.Transaction, error
 		return t, err
 	}
 	// Keep account balance in sync.
-	_ = a.db.RecalcBalance(t.AccountID)
+	if err := a.db.RecalcBalance(t.AccountID); err != nil {
+		return t, err
+	}
 	return t, nil
 }
 
@@ -47,11 +51,16 @@ func (a *App) UpdateTransaction(t models.Transaction) error {
 	if err := a.db.UpdateTransaction(&t); err != nil {
 		return err
 	}
-	_ = a.db.RecalcBalance(t.AccountID)
-	if old != nil && old.AccountID != t.AccountID {
-		_ = a.db.RecalcBalance(old.AccountID)
+	var errs []error
+	if err := a.db.RecalcBalance(t.AccountID); err != nil {
+		errs = append(errs, err)
 	}
-	return nil
+	if old != nil && old.AccountID != t.AccountID {
+		if err := a.db.RecalcBalance(old.AccountID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (a *App) DeleteTransaction(id int64) error {
@@ -63,7 +72,9 @@ func (a *App) DeleteTransaction(id int64) error {
 		return err
 	}
 	if t != nil {
-		_ = a.db.RecalcBalance(t.AccountID)
+		if err := a.db.RecalcBalance(t.AccountID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -71,12 +71,36 @@ func (db *DB) UpdateCategory(c *models.Category) error {
 }
 
 func (db *DB) DeleteCategory(id int64) error {
-	// Re-assign transactions to Uncategorized (id=12) before deleting.
-	_, err := db.Exec(`UPDATE transactions SET category_id = 12 WHERE category_id = ?`, id)
+	var isSystem bool
+	err := db.QueryRow(`SELECT is_system FROM categories WHERE id = ?`, id).Scan(&isSystem)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("category %d not found", id)
+	}
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`DELETE FROM categories WHERE id = ? AND is_system = 0`, id)
+	if isSystem {
+		return fmt.Errorf("system categories cannot be deleted")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Re-assign transactions to Uncategorized (id=12) before deleting.
+	if _, err = tx.Exec(`UPDATE transactions SET category_id = 12 WHERE category_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM categories WHERE id = ?`, id); err != nil {
+		return err
+	}
+	err = tx.Commit()
 	return err
 }
 

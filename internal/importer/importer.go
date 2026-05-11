@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -82,6 +83,7 @@ var reNonNumeric = regexp.MustCompile(`[^0-9.\-]`)
 // ParseAmount converts a bank amount string to cents.
 // Handles: "$1,234.56", "(45.00)", "-45.00", "1234,56" (EU comma-decimal).
 func ParseAmount(s string) (int64, error) {
+	original := s
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, nil
@@ -126,11 +128,17 @@ func ParseAmount(s string) (int64, error) {
 		s = strings.ReplaceAll(s, ",", "")
 	}
 
+	if strings.Trim(s, "-.,") == "" {
+		return 0, fmt.Errorf("parse amount %q: empty after stripping", original)
+	}
+
 	// Parse as float → cents
 	var whole, frac int64
 	parts := strings.SplitN(s, ".", 2)
-	if _, err := fmt.Sscanf(parts[0], "%d", &whole); err != nil && parts[0] != "" {
-		return 0, fmt.Errorf("parse amount %q: %w", s, err)
+	if parts[0] != "" {
+		if _, err := fmt.Sscanf(parts[0], "%d", &whole); err != nil {
+			return 0, fmt.Errorf("parse amount %q: %w", original, err)
+		}
 	}
 	if len(parts) == 2 {
 		fracStr := parts[1]
@@ -139,10 +147,14 @@ func ParseAmount(s string) (int64, error) {
 		case 0:
 			frac = 0
 		case 1:
-			fmt.Sscanf(fracStr, "%d", &frac)
+			if _, err := fmt.Sscanf(fracStr, "%d", &frac); err != nil {
+				return 0, fmt.Errorf("parse amount %q: %w", original, err)
+			}
 			frac *= 10
 		default:
-			fmt.Sscanf(fracStr[:2], "%d", &frac)
+			if _, err := fmt.Sscanf(fracStr[:2], "%d", &frac); err != nil {
+				return 0, fmt.Errorf("parse amount %q: %w", original, err)
+			}
 		}
 	}
 
@@ -169,16 +181,9 @@ func ParseDate(s string) (string, error) {
 		"02 Jan 2006",
 	}
 	for _, f := range formats {
-		if t, err := parseExact(f, s); err == nil {
-			return t, nil
+		if t, err := time.Parse(f, s); err == nil {
+			return t.Format("2006-01-02"), nil
 		}
 	}
 	return "", fmt.Errorf("unrecognised date %q", s)
-}
-
-// parseExact uses fmt.Sscanf-style parsing via time.Parse.
-func parseExact(layout, value string) (string, error) {
-	// We import time inline to avoid a package-level import just for this helper.
-	// Use the standard library via a type assertion trick — actually just import it.
-	return parseWithTime(layout, value)
 }

@@ -29,43 +29,43 @@ func (a *App) GetMonthSummary(year, month int) (MonthSummary, error) {
 
 	// Date range for the requested month.
 	from := fmt.Sprintf("%04d-%02d-01", year, month)
-	// Last day: first day of next month minus one day via SQLite date math.
-	to := fmt.Sprintf("%04d-%02d-01", year, month+1) // SQLite handles month=13 → next year
+	ny, nm := year, month+1
+	if nm > 12 {
+		nm = 1
+		ny++
+	}
+	to := fmt.Sprintf("%04d-%02d-01", ny, nm)
 
 	var s MonthSummary
 
 	// Net worth = sum of all account balances.
-	_ = a.db.QueryRow(
+	if err := a.db.QueryRow(
 		`SELECT COALESCE(SUM(balance_cents),0) FROM accounts WHERE is_hidden = 0`,
-	).Scan(&s.NetWorthCents)
+	).Scan(&s.NetWorthCents); err != nil {
+		return MonthSummary{}, err
+	}
 
-	// Net worth last month (approximation: NW now minus this month's net flow).
-	var monthNet int64
-	_ = a.db.QueryRow(
-		`SELECT COALESCE(SUM(amount_cents),0) FROM transactions WHERE date >= ? AND date < ?`,
-		from, to,
-	).Scan(&monthNet)
-	s.NetWorthDeltaCents = monthNet
-
-	// Income: positive transactions this month (excluding transfers).
-	_ = a.db.QueryRow(`
-		SELECT COALESCE(SUM(amount_cents),0) FROM transactions
-		WHERE date >= ? AND date < ? AND amount_cents > 0 AND is_transfer = 0
-	`, from, to).Scan(&s.IncomeCents)
-
-	// Expenses: negative transactions this month (excluding transfers), as positive number.
-	_ = a.db.QueryRow(`
-		SELECT COALESCE(SUM(amount_cents),0) FROM transactions
-		WHERE date >= ? AND date < ? AND amount_cents < 0 AND is_transfer = 0
-	`, from, to).Scan(&s.ExpenseCents)
-	s.ExpenseCents = -s.ExpenseCents // make positive for display
+	var expenseSigned int64
+	if err := a.db.QueryRow(`
+		SELECT
+			COALESCE(SUM(amount_cents), 0)                                                    AS month_net,
+			COALESCE(SUM(CASE WHEN amount_cents > 0 AND is_transfer = 0 THEN amount_cents END), 0) AS income,
+			COALESCE(SUM(CASE WHEN amount_cents < 0 AND is_transfer = 0 THEN amount_cents END), 0) AS expense_signed
+		FROM transactions
+		WHERE date >= ? AND date < ?
+	`, from, to).Scan(&s.NetWorthDeltaCents, &s.IncomeCents, &expenseSigned); err != nil {
+		return MonthSummary{}, err
+	}
+	s.ExpenseCents = -expenseSigned
 	s.SavedCents = s.IncomeCents - s.ExpenseCents
 
 	// Category breakdown for expense transactions.
+	// NULL-category rows are bucketed into the seeded "Uncategorized" category (id 12)
+	// so the breakdown reconciles with ExpenseCents.
 	rows, err := a.db.Query(`
 		SELECT c.id, c.name, c.color, ABS(SUM(t.amount_cents)) as total
 		FROM transactions t
-		JOIN categories c ON c.id = t.category_id
+		JOIN categories c ON c.id = COALESCE(t.category_id, 12)
 		WHERE t.date >= ? AND t.date < ?
 		  AND t.amount_cents < 0
 		  AND t.is_transfer = 0
@@ -81,7 +81,7 @@ func (a *App) GetMonthSummary(year, month int) (MonthSummary, error) {
 	for rows.Next() {
 		var ct CatTotal
 		if err := rows.Scan(&ct.CategoryID, &ct.CategoryName, &ct.Color, &ct.AmountCents); err != nil {
-			continue
+			return MonthSummary{}, err
 		}
 		s.CategoryTotals = append(s.CategoryTotals, ct)
 	}

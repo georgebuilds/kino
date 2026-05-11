@@ -1,0 +1,388 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      major:
+        description: Major version
+        type: number
+        default: 0
+      minor:
+        description: Minor version
+        type: number
+        default: 1
+      patch:
+        description: Patch version
+        type: number
+        default: 0
+      notes:
+        description: Release notes body (optional; default uses platform-aware template)
+        type: string
+        default: ""
+      build_mac:
+        description: Build macOS arm64
+        type: boolean
+        default: true
+      build_linux:
+        description: Build Linux x64
+        type: boolean
+        default: true
+      build_windows:
+        description: Build Windows x64
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.major }}.${{ inputs.minor }}.${{ inputs.patch }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Compute and validate tag
+        id: tag
+        run: |
+          TAG="v${{ inputs.major }}.${{ inputs.minor }}.${{ inputs.patch }}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag format: $TAG" >&2
+            exit 1
+          fi
+          if git rev-parse "$TAG" >/dev/null 2>&1 || gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists" >&2
+            exit 1
+          fi
+          if [[ "${{ inputs.build_mac }}" != "true" && "${{ inputs.build_linux }}" != "true" && "${{ inputs.build_windows }}" != "true" ]]; then
+            echo "At least one platform must be selected" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  build_mac:
+    needs: prepare
+    if: ${{ inputs.build_mac }}
+    runs-on: macos-14 # Apple Silicon — same arch as the artifact.
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Sync wails.json productVersion
+        # Notarization keys off Info.plist CFBundleShortVersionString; wails
+        # writes that from info.productVersion. Create the field if missing
+        # so kino.json doesn't need to carry a stale version.
+        run: |
+          jq --arg v "$VERSION" '.info.productVersion = $v' wails.json > wails.json.tmp
+          mv wails.json.tmp wails.json
+
+      - name: Build kino.app (macOS arm64)
+        run: |
+          export PATH="$HOME/go/bin:$PATH"
+          wails build -platform darwin/arm64 -trimpath -ldflags "-s -w"
+
+      - name: Verify the bundle
+        run: |
+          test -d build/bin/kino.app
+          test -x build/bin/kino.app/Contents/MacOS/kino
+          file build/bin/kino.app/Contents/MacOS/kino
+
+      # ====================================================================
+      # macOS code signing + notarization
+      # ====================================================================
+      # Required repo secrets:
+      #   APPLE_CERTIFICATE           — base64-encoded Developer ID .p12
+      #   APPLE_CERTIFICATE_PASSWORD  — password for the .p12
+      #   APPLE_SIGNING_IDENTITY      — e.g. "Developer ID Application: Name (TEAMID)"
+      #   APPLE_ID                    — Apple ID email
+      #   APPLE_PASSWORD              — app-specific password (NOT the iCloud one)
+      #   APPLE_TEAM_ID               — 10-char team ID
+      #   KEYCHAIN_PASSWORD           — any string; locks the temp keychain
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERT_PATH"
+
+          # Isolated keychain — leaves the runner's login keychain untouched.
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          # Required on modern macOS so codesign can use the key non-interactively.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Prepend to the search list so codesign finds the identity.
+          security list-keychain -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychain -d user | tr -d '"')
+
+          rm -f "$CERT_PATH"
+
+      - name: Sign kino.app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # --options runtime enables Hardened Runtime (notarization requires it).
+          # --timestamp embeds an RFC-3161 timestamp so the signature stays valid
+          # after the cert expires.
+          /usr/bin/codesign --force --deep --options runtime --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            build/bin/kino.app
+          /usr/bin/codesign --verify --deep --strict --verbose=2 build/bin/kino.app
+
+      - name: Notarize and staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          NOTARIZE_ZIP="$RUNNER_TEMP/kino-notarize.zip"
+          # notarytool wants a zip/dmg/pkg, not a bare .app.
+          ditto -c -k --keepParent build/bin/kino.app "$NOTARIZE_ZIP"
+          xcrun notarytool submit "$NOTARIZE_ZIP" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          # Staple onto the .app (not the zip — stapler can't write into archives).
+          # Subsequent ditto will preserve the stapled ticket inside the new zip.
+          xcrun stapler staple build/bin/kino.app
+          /usr/sbin/spctl --assess --type execute --verbose build/bin/kino.app
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p release
+          # `ditto` preserves macOS extended attributes / signatures across
+          # the archive boundary in a way `zip -r` doesn't.
+          ditto -c -k --keepParent --sequesterRsrc \
+            build/bin/kino.app \
+            "release/kino-${TAG}-darwin-arm64.zip"
+          (cd release && shasum -a 256 "kino-${TAG}-darwin-arm64.zip" \
+            > "kino-${TAG}-darwin-arm64.zip.sha256")
+          ls -la release
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: mac
+          path: release/
+
+  build_linux:
+    needs: prepare
+    if: ${{ inputs.build_linux }}
+    runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails system deps (Linux)
+        # Wails v2 on linux needs gtk3 + webkit2gtk; ubuntu-22.04 ships
+        # libwebkit2gtk-4.0-dev (24.04 renamed to -4.1).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.0-dev \
+            pkg-config
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Sync wails.json productVersion
+        run: |
+          jq --arg v "$VERSION" '.info.productVersion = $v' wails.json > wails.json.tmp
+          mv wails.json.tmp wails.json
+
+      - name: Build kino (linux/amd64)
+        run: |
+          export PATH="$HOME/go/bin:$PATH"
+          wails build -platform linux/amd64 -trimpath -ldflags "-s -w"
+
+      - name: Verify the binary
+        run: |
+          test -x build/bin/kino
+          file build/bin/kino
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p release
+          tar -C build/bin -czf \
+            "release/kino-${TAG}-linux-amd64.tar.gz" kino
+          (cd release && sha256sum "kino-${TAG}-linux-amd64.tar.gz" \
+            > "kino-${TAG}-linux-amd64.tar.gz.sha256")
+          ls -la release
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: linux
+          path: release/
+
+  build_windows:
+    needs: prepare
+    if: ${{ inputs.build_windows }}
+    runs-on: windows-2022
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    defaults:
+      run:
+        # Git Bash so the script reads identically to the unix jobs.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Pre-build cleanup
+        # Wipe stale prior-version artifacts in case the runner is reused.
+        run: rm -rf build/bin
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Sync wails.json productVersion
+        run: |
+          jq --arg v "$VERSION" '.info.productVersion = $v' wails.json > wails.json.tmp
+          mv wails.json.tmp wails.json
+
+      - name: Build kino.exe (windows/amd64)
+        run: |
+          export PATH="$USERPROFILE/go/bin:$PATH"
+          wails build -platform windows/amd64 -trimpath -ldflags "-s -w"
+
+      - name: Verify the binary
+        run: |
+          test -f build/bin/kino.exe
+          file build/bin/kino.exe
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p release
+          (cd build/bin && 7z a "../../release/kino-${TAG}-windows-amd64.zip" kino.exe)
+          (cd release && sha256sum "kino-${TAG}-windows-amd64.zip" \
+            > "kino-${TAG}-windows-amd64.zip.sha256")
+          ls -la release
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: windows
+          path: release/
+
+  release:
+    needs: [prepare, build_mac, build_linux, build_windows]
+    # Run as long as prepare succeeded and at least one build succeeded.
+    # `always()` keeps us alive past skipped jobs (when their checkbox was off).
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      (needs.build_mac.result == 'success' ||
+       needs.build_linux.result == 'success' ||
+       needs.build_windows.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      MAC_RESULT: ${{ needs.build_mac.result }}
+      LINUX_RESULT: ${{ needs.build_linux.result }}
+      WINDOWS_RESULT: ${{ needs.build_windows.result }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      - name: Inspect artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create release
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: |
+          BODY="# kino ${TAG}"$'\n\n'
+          BODY+="Local-first personal finance desktop app. Your data lives in a single \`.kino\` SQLite file on your machine — no accounts, no sync, no telemetry."$'\n\n'
+          if [[ "$MAC_RESULT" == "success" ]]; then
+            BODY+="## macOS (Apple Silicon)"$'\n\n'
+            BODY+="1. Download \`kino-${TAG}-darwin-arm64.zip\` and unzip it."$'\n'
+            BODY+="2. Drag \`kino.app\` into /Applications and double-click. Signed and notarized — no Gatekeeper prompt."$'\n\n'
+          fi
+          if [[ "$LINUX_RESULT" == "success" ]]; then
+            BODY+="## Linux (x86_64)"$'\n\n'
+            BODY+="1. Download \`kino-${TAG}-linux-amd64.tar.gz\` and \`tar -xzf\` it."$'\n'
+            BODY+="2. \`chmod +x kino && ./kino\`."$'\n'
+            BODY+="   Requires \`libgtk-3\` and \`libwebkit2gtk-4.0\` (Ubuntu 24.04 / Debian 13 ship \`libwebkit2gtk-4.1\` instead — install a 4.0 back-version or run from 22.04)."$'\n\n'
+          fi
+          if [[ "$WINDOWS_RESULT" == "success" ]]; then
+            BODY+="## Windows (x64)"$'\n\n'
+            BODY+="1. Download \`kino-${TAG}-windows-amd64.zip\` and unzip."$'\n'
+            BODY+="2. Double-click \`kino.exe\`. Requires WebView2 (preinstalled on Windows 11; Edge installs it on 10). Unsigned — Windows SmartScreen will show a warning the first time."$'\n\n'
+          fi
+
+          FINAL="${NOTES:-$BODY}"
+          gh release create "$TAG" --title "$TAG" --notes "$FINAL"
+
+          # Each build job uploads its release/ directory as an artifact named
+          # after the platform; download-artifact lays them out as
+          # artifacts/<platform>/<files>. Glob each platform separately so a
+          # missing one is just a no-op.
+          for plat in mac linux windows; do
+            if compgen -G "artifacts/${plat}/*" > /dev/null; then
+              gh release upload "$TAG" artifacts/${plat}/* --clobber
+            fi
+          done

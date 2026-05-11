@@ -345,7 +345,6 @@
         line-height: 1.1;
         letter-spacing: -0.025em;
         color: var(--bone);
-        max-width: 18ch;
       }
       h1.headline em {
         font-style: normal;
@@ -355,7 +354,7 @@
       .lede {
         font-size: clamp(13px, 1.85vh, 16px);
         color: var(--muted);
-        max-width: 52ch;
+        max-width: 72ch;
         line-height: 1.65;
       }
       .lede strong {
@@ -370,12 +369,12 @@
       /* feature ticks */
       .ticks {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 10px 20px;
         font-size: 12px;
         color: var(--bone);
         width: 100%;
-        max-width: 480px;
+        max-width: 720px;
       }
       .tick {
         display: flex;
@@ -722,7 +721,8 @@
         color: var(--soft);
         letter-spacing: 0.04em;
         line-height: 1.55;
-        max-width: 64ch;
+        width: 100%;
+        max-width: 560px;
       }
       .dl-note em {
         color: var(--muted);

@@ -33,6 +33,58 @@
         </div>
       </div>
 
+      <!-- Updates -->
+      <div class="card">
+        <h2 class="text-heading" style="margin-bottom: var(--space-5);">About</h2>
+        <div class="settings-row">
+          <div>
+            <p class="text-body" style="font-weight: 500;">Version</p>
+            <p class="text-body-sm" style="color: var(--color-text-secondary); margin-top: 2px;">
+              {{ appVersion }}
+            </p>
+          </div>
+          <button
+            class="btn btn--ghost btn--sm"
+            :disabled="updateStatus === 'checking' || updateStatus === 'updating'"
+            @click="checkForUpdate"
+          >
+            <Loader2 v-if="updateStatus === 'checking'" :size="14" class="spin" />
+            <RefreshCw v-else :size="14" />
+            Check for updates
+          </button>
+        </div>
+
+        <!-- Update available / installing -->
+        <div v-if="updateStatus === 'available' || updateStatus === 'updating'" class="update-banner update-banner--available">
+          <ArrowUpCircle :size="15" style="flex-shrink:0;" />
+          <div style="flex:1; min-width:0;">
+            <span class="text-body-sm" style="font-weight:500;">
+              v{{ updateInfo!.version }} is available
+            </span>
+          </div>
+          <button
+            class="btn btn--primary btn--sm"
+            :disabled="updateStatus === 'updating'"
+            @click="applyUpdate"
+          >
+            <Loader2 v-if="updateStatus === 'updating'" :size="14" class="spin" />
+            <Download v-else :size="14" />
+            Install
+          </button>
+        </div>
+
+        <!-- Up to date -->
+        <div v-if="updateStatus === 'up-to-date'" class="update-banner update-banner--ok">
+          <CheckCircle :size="15" style="flex-shrink:0;" />
+          <p class="text-body-sm">You're up to date.</p>
+        </div>
+
+        <!-- Error -->
+        <div v-if="updateStatus === 'error'" class="update-banner update-banner--error">
+          <p class="text-body-sm">{{ updateError }}</p>
+        </div>
+      </div>
+
       <!-- Data file -->
       <div class="card">
         <h2 class="text-heading" style="margin-bottom: var(--space-5);">Data file</h2>
@@ -247,11 +299,13 @@ import { ref, computed, onMounted, markRaw } from 'vue'
 import {
   Monitor, Sun, Moon, Cloud, FolderInput,
   Plus, Pencil, Trash2, Loader2, Lock,
+  RefreshCw, ArrowUpCircle, CheckCircle, Download,
 } from 'lucide-vue-next'
 import { useThemeStore } from '../stores/theme'
 import type { ThemePreference } from '../stores/theme'
 import { storeToRefs } from 'pinia'
-import { GetFileState, MoveFile, CloudFolderSuggestions } from '../../wailsjs/go/main/App'
+import { GetFileState, MoveFile, CloudFolderSuggestions, GetAppVersion, CheckForUpdate, ApplyUpdate } from '../../wailsjs/go/main/App'
+import type { main } from '../../wailsjs/go/models'
 import { useCategoriesStore } from '../stores/categories'
 import type { Category } from '../stores/categories'
 import { iconComponent } from '../utils/categoryIcons'
@@ -268,14 +322,56 @@ const themeOptions: { value: ThemePreference; label: string; icon: any }[] = [
   { value: 'dark',   label: 'Dark',   icon: markRaw(Moon) },
 ]
 
+// ── Updates ───────────────────────────────────────────────────────────────────
+const appVersion  = ref('')
+type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'updating' | 'error'
+const updateStatus = ref<UpdateStatus>('idle')
+const updateInfo   = ref<main.UpdateInfo | null>(null)
+const updateError  = ref<string | null>(null)
+
+async function checkForUpdate() {
+  updateStatus.value = 'checking'
+  updateError.value  = null
+  try {
+    const info = await CheckForUpdate()
+    if (info.available) {
+      updateInfo.value   = info
+      updateStatus.value = 'available'
+    } else {
+      updateStatus.value = 'up-to-date'
+    }
+  } catch (e: any) {
+    updateError.value  = e?.message ?? 'Failed to check for updates'
+    updateStatus.value = 'error'
+  }
+}
+
+async function applyUpdate() {
+  updateStatus.value = 'updating'
+  updateError.value  = null
+  try {
+    await ApplyUpdate()
+    // On Linux/Windows the app quits; on macOS it relaunches — either way
+    // we won't reach this line in normal flow.
+  } catch (e: any) {
+    updateError.value  = e?.message ?? 'Update failed'
+    updateStatus.value = 'error'
+  }
+}
+
 // ── Data file ─────────────────────────────────────────────────────────────────
 const filePath    = ref('')
 const cloudFolders = ref<{ name: string; path: string }[]>([])
 
 onMounted(async () => {
-  const [state, folders] = await Promise.all([GetFileState(), CloudFolderSuggestions()])
+  const [state, folders, ver] = await Promise.all([
+    GetFileState(),
+    CloudFolderSuggestions(),
+    GetAppVersion(),
+  ])
   filePath.value     = state.path
   cloudFolders.value = folders
+  appVersion.value   = ver
 })
 
 async function onMove() {
@@ -382,6 +478,28 @@ async function doDelete() {
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface-2); border-radius: var(--radius-md);
   color: var(--color-text-secondary);
+}
+
+/* ── Update banners ── */
+.update-banner {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-4);
+}
+.update-banner--available {
+  background: rgba(26,138,97,0.08);
+  border: 1px solid rgba(26,138,97,0.2);
+  color: var(--color-text-primary);
+}
+.update-banner--ok {
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+}
+.update-banner--error {
+  background: rgba(220,38,38,0.08);
+  border: 1px solid rgba(220,38,38,0.2);
+  color: var(--color-expense);
 }
 
 /* ── Category section ── */

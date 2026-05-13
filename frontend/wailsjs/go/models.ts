@@ -323,6 +323,25 @@ export namespace main {
 	}
 	
 	
+	export class UpdateInfo {
+	    available: boolean;
+	    version: string;
+	    url: string;
+	    releaseNotes: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.version = source["version"];
+	        this.url = source["url"];
+	        this.releaseNotes = source["releaseNotes"];
+	    }
+	}
+
 	export class ImportResult {
 	    inserted: number;
 	    skipped: number;

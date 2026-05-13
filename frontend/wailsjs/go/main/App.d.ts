@@ -4,6 +4,10 @@ import {main} from '../models';
 import {models} from '../models';
 import {db} from '../models';
 
+export function ApplyUpdate():Promise<void>;
+
+export function CheckForUpdate():Promise<main.UpdateInfo>;
+
 export function CloudFolderSuggestions():Promise<Array<main.CloudFolder>>;
 
 export function CreateAccount(arg1:models.Account):Promise<models.Account>;
@@ -29,6 +33,8 @@ export function GetBudgetPage(arg1:number,arg2:number):Promise<main.BudgetPage>;
 export function GetCashFlow(arg1:number,arg2:number):Promise<main.CashFlow>;
 
 export function GetCategoryTransactionCount(arg1:number):Promise<number>;
+
+export function GetAppVersion():Promise<string>;
 
 export function GetFileState():Promise<main.FileState>;
 

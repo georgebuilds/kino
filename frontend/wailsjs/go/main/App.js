@@ -50,6 +50,10 @@ export function DeleteTransaction(arg1) {
   return window['go']['main']['App']['DeleteTransaction'](arg1);
 }
 
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
 export function GetBudgetPage(arg1, arg2) {
   return window['go']['main']['App']['GetBudgetPage'](arg1, arg2);
 }
@@ -60,10 +64,6 @@ export function GetCashFlow(arg1, arg2) {
 
 export function GetCategoryTransactionCount(arg1) {
   return window['go']['main']['App']['GetCategoryTransactionCount'](arg1);
-}
-
-export function GetAppVersion() {
-  return window['go']['main']['App']['GetAppVersion']();
 }
 
 export function GetFileState() {

@@ -28,13 +28,13 @@ export function DeleteCategory(arg1:number):Promise<void>;
 
 export function DeleteTransaction(arg1:number):Promise<void>;
 
+export function GetAppVersion():Promise<string>;
+
 export function GetBudgetPage(arg1:number,arg2:number):Promise<main.BudgetPage>;
 
 export function GetCashFlow(arg1:number,arg2:number):Promise<main.CashFlow>;
 
 export function GetCategoryTransactionCount(arg1:number):Promise<number>;
-
-export function GetAppVersion():Promise<string>;
 
 export function GetFileState():Promise<main.FileState>;
 

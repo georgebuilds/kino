@@ -97,6 +97,20 @@ func TestParseDate(t *testing.T) {
 	}
 }
 
+func TestParseDate_AmbiguousDate_PrefersUSFormat(t *testing.T) {
+	// "06/07/2025" is ambiguous: US MM/DD/YYYY reads it as June 7, while
+	// DD/MM/YYYY reads it as July 6. The formats slice in ParseDate tries
+	// "01/02/2006" (US) before "02/01/2006" (DD/MM), so the US interpretation
+	// must win and the returned date must be 2025-06-07.
+	got, err := ParseDate("06/07/2025")
+	if err != nil {
+		t.Fatalf("ParseDate(%q) unexpected error: %v", "06/07/2025", err)
+	}
+	if got != "2025-06-07" {
+		t.Errorf("ParseDate(%q) = %q, want %q (US MM/DD wins over DD/MM)", "06/07/2025", got, "2025-06-07")
+	}
+}
+
 func TestNormalizePayee(t *testing.T) {
 	tests := []struct {
 		name  string

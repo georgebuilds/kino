@@ -176,3 +176,36 @@ func TestGetMonthSummary_RequireDB_Error(t *testing.T) {
 		t.Errorf("error %q should mention 'no file open'", err)
 	}
 }
+
+// TestGetMonthSummary_NullCategory_BucketedAsUncategorized verifies that
+// expense transactions with nil CategoryID appear in CategoryTotals under the
+// seeded "Uncategorized" category (id 12) via the COALESCE in the category
+// breakdown query.
+func TestGetMonthSummary_NullCategory_BucketedAsUncategorized(t *testing.T) {
+	a := newTestApp(t)
+	accID := insertTestAccount(t, a, "Checking")
+
+	day := mustDate(2025, 11, 20)
+	insertTestTx(t, a, accID, day, -6000, nil) // -$60 expense, no category
+
+	s, err := a.GetMonthSummary(2025, 11)
+	if err != nil {
+		t.Fatalf("GetMonthSummary: %v", err)
+	}
+
+	if s.ExpenseCents != 6000 {
+		t.Errorf("ExpenseCents = %d, want 6000", s.ExpenseCents)
+	}
+	if len(s.CategoryTotals) == 0 {
+		t.Fatal("CategoryTotals should not be empty for an uncategorized expense")
+	}
+	if s.CategoryTotals[0].CategoryName != "Uncategorized" {
+		t.Errorf("CategoryTotals[0].CategoryName = %q, want %q", s.CategoryTotals[0].CategoryName, "Uncategorized")
+	}
+	if s.CategoryTotals[0].AmountCents != 6000 {
+		t.Errorf("CategoryTotals[0].AmountCents = %d, want 6000", s.CategoryTotals[0].AmountCents)
+	}
+	if s.TopCategory != "Uncategorized" {
+		t.Errorf("TopCategory = %q, want %q", s.TopCategory, "Uncategorized")
+	}
+}

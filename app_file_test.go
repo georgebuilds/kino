@@ -83,3 +83,41 @@ func TestIsCrossDeviceErr_OtherError_False(t *testing.T) {
 		t.Error("isCrossDeviceErr(nil) should be false")
 	}
 }
+
+func TestSaveAndLoadLastFilePath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	const want = "/some/path/test.kino"
+	if err := saveLastFilePath(want); err != nil {
+		t.Fatalf("saveLastFilePath: %v", err)
+	}
+	got, err := lastFilePath()
+	if err != nil {
+		t.Fatalf("lastFilePath: %v", err)
+	}
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestOpenPath_NewFile_ReturnsOpenState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // keep saveLastFilePath side-effect isolated
+	a := &App{}
+	p := filepath.Join(t.TempDir(), "new.kino")
+	state, err := a.openPath(p, true)
+	if err != nil {
+		t.Fatalf("openPath: %v", err)
+	}
+	if !state.IsOpen {
+		t.Error("IsOpen should be true")
+	}
+	if !state.IsNew {
+		t.Error("IsNew should be true")
+	}
+	if state.Path != p {
+		t.Errorf("Path = %q, want %q", state.Path, p)
+	}
+	if a.db == nil {
+		t.Error("App.db should be set after openPath")
+	}
+	_ = a.db.Close()
+}

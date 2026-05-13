@@ -177,3 +177,33 @@ func TestListBudgets_RequireDB_Error(t *testing.T) {
 		t.Fatal("expected error from no-DB App")
 	}
 }
+
+func TestApp_CreateBudget_RequireDB(t *testing.T) {
+	_, err := (&App{}).CreateBudget(models.Budget{})
+	if err == nil {
+		t.Fatal("expected error from no-DB App, got nil")
+	}
+	if !strings.Contains(err.Error(), "no file open") {
+		t.Errorf("error %q should mention 'no file open'", err)
+	}
+}
+
+func TestApp_UpdateBudget_RequireDB(t *testing.T) {
+	err := (&App{}).UpdateBudget(models.Budget{})
+	if err == nil {
+		t.Fatal("expected error from no-DB App, got nil")
+	}
+	if !strings.Contains(err.Error(), "no file open") {
+		t.Errorf("error %q should mention 'no file open'", err)
+	}
+}
+
+func TestApp_DeleteBudget_RequireDB(t *testing.T) {
+	err := (&App{}).DeleteBudget(1)
+	if err == nil {
+		t.Fatal("expected error from no-DB App, got nil")
+	}
+	if !strings.Contains(err.Error(), "no file open") {
+		t.Errorf("error %q should mention 'no file open'", err)
+	}
+}

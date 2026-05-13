@@ -168,3 +168,93 @@ func TestGetCashFlow_RequireDB_Error(t *testing.T) {
 		t.Errorf("error %q should mention 'no file open'", err)
 	}
 }
+
+// TestGetCashFlow_ZeroIncome_ExpensesOnly exercises the denom fallback at
+// app_cashflow.go ~line 158: when totalIncome == 0 but totalExpenses > 0 the
+// denominator falls back to totalExpenses so the division in the links loop
+// does not panic.  With no left nodes the links slice will be empty — that is
+// fine; the important things are: no panic, IncomeCents == 0, and
+// ExpenseCents reflects the inserted transactions.
+func TestGetCashFlow_ZeroIncome_ExpensesOnly(t *testing.T) {
+	a := newTestApp(t)
+	accID := insertTestAccount(t, a, "Checking")
+
+	expCat := models.Category{Name: "Groceries", Color: "#C4603A", Icon: "utensils"}
+	if err := a.db.CreateCategory(&expCat); err != nil {
+		t.Fatalf("create expCat: %v", err)
+	}
+
+	day := mustDate(2025, 9, 5)
+	insertTestTx(t, a, accID, day, -8000, &expCat.ID) // -$80 expense, no income
+
+	cf, err := a.GetCashFlow(2025, 9)
+	if err != nil {
+		t.Fatalf("GetCashFlow: %v", err)
+	}
+
+	if cf.IncomeCents != 0 {
+		t.Errorf("IncomeCents = %d, want 0", cf.IncomeCents)
+	}
+	if cf.ExpenseCents != 8000 {
+		t.Errorf("ExpenseCents = %d, want 8000", cf.ExpenseCents)
+	}
+	// savedCents = 0 - 8000 = -8000; no "saved" node
+	if cf.SavedCents > 0 {
+		t.Errorf("SavedCents = %d, want <= 0 (pure-expense month)", cf.SavedCents)
+	}
+	for _, rn := range cf.RightNodes {
+		if rn.ID == "saved" {
+			t.Error("RightNodes should NOT contain 'saved' node when income is zero")
+		}
+	}
+	// No left nodes → links loop produces nothing regardless of denom value.
+	if len(cf.LeftNodes) != 0 {
+		t.Errorf("LeftNodes len = %d, want 0 (no income transactions)", len(cf.LeftNodes))
+	}
+	if len(cf.Links) != 0 {
+		t.Errorf("Links len = %d, want 0 (no left nodes to link from)", len(cf.Links))
+	}
+}
+
+// TestGetCashFlow_NullCategory_BucketedAsUncategorized verifies that
+// transactions with nil CategoryID are bucketed into the seeded
+// "Uncategorized" category (id 12) via COALESCE in both SQL queries.
+func TestGetCashFlow_NullCategory_BucketedAsUncategorized(t *testing.T) {
+	a := newTestApp(t)
+	accID := insertTestAccount(t, a, "Checking")
+
+	day := mustDate(2025, 10, 1)
+	insertTestTx(t, a, accID, day, 12000, nil)  // income, no category
+	insertTestTx(t, a, accID, day, -4000, nil)  // expense, no category
+
+	cf, err := a.GetCashFlow(2025, 10)
+	if err != nil {
+		t.Fatalf("GetCashFlow: %v", err)
+	}
+
+	if cf.IncomeCents != 12000 {
+		t.Errorf("IncomeCents = %d, want 12000", cf.IncomeCents)
+	}
+	if cf.ExpenseCents != 4000 {
+		t.Errorf("ExpenseCents = %d, want 4000", cf.ExpenseCents)
+	}
+
+	if len(cf.LeftNodes) != 1 {
+		t.Fatalf("LeftNodes len = %d, want 1 (all income bucketed into Uncategorized)", len(cf.LeftNodes))
+	}
+	if !strings.Contains(cf.LeftNodes[0].Name, "Uncategorized") {
+		t.Errorf("LeftNodes[0].Name = %q, want it to contain 'Uncategorized'", cf.LeftNodes[0].Name)
+	}
+
+	// RightNodes: one expense bucket (Uncategorized) — no "Saved" because income > expenses,
+	// so there will also be a "saved" node.
+	hasUncategorizedExpense := false
+	for _, rn := range cf.RightNodes {
+		if strings.Contains(rn.Name, "Uncategorized") {
+			hasUncategorizedExpense = true
+		}
+	}
+	if !hasUncategorizedExpense {
+		t.Error("RightNodes should contain an 'Uncategorized' expense node")
+	}
+}

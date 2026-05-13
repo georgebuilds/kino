@@ -275,6 +275,70 @@ func TestApp_DeleteTransaction_RequireDB(t *testing.T) {
 	}
 }
 
+func TestApp_UpdateTransaction_CrossAccount_RecalcsBothAccounts(t *testing.T) {
+	a := newTestApp(t)
+	accAID := insertTestAccount(t, a, "Account A")
+	accBID := insertTestAccount(t, a, "Account B")
+
+	// Create a transaction on account A.
+	tx, err := a.CreateTransaction(models.Transaction{
+		AccountID:   accAID,
+		Date:        mustDate(2025, 1, 1),
+		AmountCents: -5000,
+		Payee:       "test payee",
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction: %v", err)
+	}
+
+	// Verify account A's balance is -5000.
+	accA, err := a.db.GetAccount(accAID)
+	if err != nil {
+		t.Fatalf("GetAccount A after create: %v", err)
+	}
+	if accA.BalanceCents != -5000 {
+		t.Errorf("account A balance after create = %d, want -5000", accA.BalanceCents)
+	}
+
+	// Move the transaction to account B.
+	tx.AccountID = accBID
+	if err := a.UpdateTransaction(tx); err != nil {
+		t.Fatalf("UpdateTransaction: %v", err)
+	}
+
+	// Verify account B's balance is now -5000 (has the transaction).
+	accB, err := a.db.GetAccount(accBID)
+	if err != nil {
+		t.Fatalf("GetAccount B after update: %v", err)
+	}
+	if accB.BalanceCents != -5000 {
+		t.Errorf("account B balance after move = %d, want -5000", accB.BalanceCents)
+	}
+
+	// Verify account A's balance is now 0 (no longer has the transaction).
+	accA2, err := a.db.GetAccount(accAID)
+	if err != nil {
+		t.Fatalf("GetAccount A after update: %v", err)
+	}
+	if accA2.BalanceCents != 0 {
+		t.Errorf("account A balance after move = %d, want 0", accA2.BalanceCents)
+	}
+}
+
+func TestApp_UpdateCategory_RequireDB(t *testing.T) {
+	err := (&App{}).UpdateCategory(models.Category{})
+	if err == nil || !strings.Contains(err.Error(), "no file open") {
+		t.Errorf("expected requireDB error, got %v", err)
+	}
+}
+
+func TestApp_DeleteCategory_RequireDB(t *testing.T) {
+	err := (&App{}).DeleteCategory(1)
+	if err == nil || !strings.Contains(err.Error(), "no file open") {
+		t.Errorf("expected requireDB error, got %v", err)
+	}
+}
+
 // ─── Net worth history ────────────────────────────────────────────────────────
 
 func TestApp_GetNetWorthHistory_ReturnsNPoints(t *testing.T) {

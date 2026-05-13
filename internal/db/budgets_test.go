@@ -288,6 +288,52 @@ func TestGetBudgetProgress_IgnoresIncomeRows(t *testing.T) {
 	}
 }
 
+func TestGetBudgetProgress_ExpiredBudget_StillAppears(t *testing.T) {
+	// Documents current behavior: GetBudgetProgress does NOT filter budgets by
+	// their start_date/end_date. A budget whose EndDate is before the query
+	// window still appears in the budgeted slice. This test is NOT asserting
+	// this is the correct design — it documents how the code currently behaves.
+	d := newTestDB(t)
+
+	cat := &models.Category{Name: "ExpiredCat", Color: "#abc", Icon: "tag", IsIncome: false}
+	if err := d.CreateCategory(cat); err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	// Budget that ended well before the query window (Jan 2025), which covers
+	// the current month of May 2025.
+	expiredEnd := mustDate(2025, 1, 31)
+	budget := &models.Budget{
+		CategoryID:  cat.ID,
+		AmountCents: 10000,
+		Period:      models.BudgetMonthly,
+		StartDate:   mustDate(2025, 1, 1),
+		EndDate:     &expiredEnd,
+	}
+	if err := d.CreateBudget(budget); err != nil {
+		t.Fatalf("CreateBudget: %v", err)
+	}
+
+	// Query for May 2025 — entirely after the budget's end date.
+	budgeted, _, err := d.GetBudgetProgress("2025-05-01", "2025-06-01")
+	if err != nil {
+		t.Fatalf("GetBudgetProgress: %v", err)
+	}
+
+	// Current behavior: the expired budget still appears because the query
+	// selects all budgets without filtering on start_date/end_date.
+	if len(budgeted) != 1 {
+		t.Fatalf("budgeted len = %d, want 1 (expired budget still appears — current behavior)", len(budgeted))
+	}
+	if budgeted[0].Budget.CategoryID != cat.ID {
+		t.Fatalf("budgeted[0].CategoryID = %d, want %d", budgeted[0].Budget.CategoryID, cat.ID)
+	}
+	// No transactions in May, so spent is 0.
+	if budgeted[0].SpentCents != 0 {
+		t.Fatalf("SpentCents = %d, want 0 (no transactions in query window)", budgeted[0].SpentCents)
+	}
+}
+
 func TestCreateBudget_WithEndDate_Roundtrips(t *testing.T) {
 	d := newTestDB(t)
 

@@ -759,6 +759,61 @@ func TestMergeTransaction_CSVtoCSV_KeepHashWins(t *testing.T) {
 	}
 }
 
+func TestListTransactions_Offset_SecondPage(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccOffset")
+
+	// Insert 4 transactions with distinct dates so ORDER BY date DESC, id DESC
+	// produces a deterministic sequence: Jan 4, Jan 3, Jan 2, Jan 1.
+	txs := []models.Transaction{
+		{AccountID: acc, Date: mustDate(2025, 1, 1), AmountCents: -100, Payee: "oldest"},
+		{AccountID: acc, Date: mustDate(2025, 1, 2), AmountCents: -200, Payee: "second-oldest"},
+		{AccountID: acc, Date: mustDate(2025, 1, 3), AmountCents: -300, Payee: "second-newest"},
+		{AccountID: acc, Date: mustDate(2025, 1, 4), AmountCents: -400, Payee: "newest"},
+	}
+	for i := range txs {
+		if err := d.CreateTransaction(&txs[i]); err != nil {
+			t.Fatalf("create tx %d: %v", i, err)
+		}
+	}
+
+	// First page: Limit=2, Offset=0 → 2 newest rows.
+	page1, err := d.ListTransactions(TxFilter{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListTransactions page1: %v", err)
+	}
+	if page1.Total != 4 {
+		t.Fatalf("page1.Total = %d, want 4", page1.Total)
+	}
+	if len(page1.Transactions) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1.Transactions))
+	}
+	if page1.Transactions[0].Payee != "newest" {
+		t.Fatalf("page1[0].Payee = %q, want %q", page1.Transactions[0].Payee, "newest")
+	}
+	if page1.Transactions[1].Payee != "second-newest" {
+		t.Fatalf("page1[1].Payee = %q, want %q", page1.Transactions[1].Payee, "second-newest")
+	}
+
+	// Second page: Limit=2, Offset=2 → 2 oldest rows.
+	page2, err := d.ListTransactions(TxFilter{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("ListTransactions page2: %v", err)
+	}
+	if page2.Total != 4 {
+		t.Fatalf("page2.Total = %d, want 4 (Total is unfiltered count, not per-page count)", page2.Total)
+	}
+	if len(page2.Transactions) != 2 {
+		t.Fatalf("page2 len = %d, want 2", len(page2.Transactions))
+	}
+	if page2.Transactions[0].Payee != "second-oldest" {
+		t.Fatalf("page2[0].Payee = %q, want %q", page2.Transactions[0].Payee, "second-oldest")
+	}
+	if page2.Transactions[1].Payee != "oldest" {
+		t.Fatalf("page2[1].Payee = %q, want %q", page2.Transactions[1].Payee, "oldest")
+	}
+}
+
 func TestMergeTransaction_AdoptsDeleteCategoryAndNotesWhenKeepIsEmpty(t *testing.T) {
 	d := newTestDB(t)
 	acc := insertTestAccount(t, d, "A")

@@ -512,6 +512,67 @@ DATA:OFXSGML
 	}
 }
 
+func TestParseOFXDate_TooShort_Errors(t *testing.T) {
+	// parseOFXDate requires at least 8 characters (YYYYMMDD). Anything shorter
+	// must return an error rather than silently producing a wrong date.
+	shorts := []string{"", "2025", "2025011"}
+	for _, s := range shorts {
+		t.Run(s, func(t *testing.T) {
+			_, err := parseOFXDate(s)
+			if err == nil {
+				t.Errorf("parseOFXDate(%q) expected an error for too-short input, got nil", s)
+			}
+		})
+	}
+}
+
+func TestParseOFX_V1_ZeroTransactions_ReturnsEmpty(t *testing.T) {
+	// A structurally valid OFX v1 file that has a BANKACCTFROM/ACCTID but
+	// contains no STMTTRN blocks. ParseOFX must succeed (no error), return the
+	// account external ID from the file, and return an empty rows slice.
+	const input = `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+
+<OFX>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<STMTRS>
+<BANKACCTFROM>
+<ACCTID>EMPTY-ACCT-42
+</BANKACCTFROM>
+<BANKTRANLIST>
+</BANKTRANLIST>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>
+`
+	rows, acctExtID, warnings, err := ParseOFX(strings.NewReader(input), 7)
+	if err != nil {
+		t.Fatalf("ParseOFX unexpected error: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows for empty transaction list, got %d", len(rows))
+	}
+	if acctExtID != "EMPTY-ACCT-42" {
+		t.Errorf("acctExtID = %q, want %q", acctExtID, "EMPTY-ACCT-42")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings, got %v", warnings)
+	}
+}
+
+func TestParseOFXv2_MalformedXML_Errors(t *testing.T) {
+	// Content that starts with <?xml so isOFXv2 returns true, but the XML body
+	// is malformed (unclosed tag). ParseOFX must return a non-nil error.
+	const input = `<?xml version="1.0" encoding="UTF-8"?><OFX><unclosed`
+	_, _, _, err := ParseOFX(strings.NewReader(input), 1)
+	if err == nil {
+		t.Error("ParseOFX expected an error for malformed XML, got nil")
+	}
+}
+
 func TestParseOFXDate_TimezoneOffset(t *testing.T) {
 	// Timezone bracket is stripped; only the date part (first 8 chars) is used.
 	got, err := parseOFXDate("20250115120000.000[-5:EST]")

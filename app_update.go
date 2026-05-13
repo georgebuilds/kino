@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"time"
 
 	selfupdate "github.com/creativeprojects/go-selfupdate"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -33,6 +34,7 @@ type UpdateInfo struct {
 func (a *App) GetAppVersion() string { return version }
 
 // CheckForUpdate queries GitHub Releases and reports any newer version.
+// The release is cached on the App so ApplyUpdate can use it directly.
 func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	updater, err := selfupdate.NewUpdater(selfupdate.Config{})
 	if err != nil {
@@ -44,9 +46,11 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 		return UpdateInfo{}, fmt.Errorf("checking for updates: %w", err)
 	}
 	if !found || release.LessOrEqual(version) {
+		a.pendingRelease = nil
 		return UpdateInfo{Available: false}, nil
 	}
 
+	a.pendingRelease = release
 	return UpdateInfo{
 		Available:    true,
 		Version:      release.Version(),
@@ -58,25 +62,29 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 // ApplyUpdate downloads and installs the latest release, then quits (or
 // relaunches on macOS).
 //
-// Linux/Windows: binary replaced in-place via go-selfupdate; app quits and
-// the user restarts it.
-//
-// macOS: the full .app bundle is replaced (replacing only the inner binary
-// would break codesign on a Hardened Runtime build) and the new app is
-// relaunched automatically.
+// Uses the release cached by CheckForUpdate when available so the version the
+// user saw in the UI is exactly the one installed (no second DetectLatest call
+// and no race with a release shipping between check and apply).
 func (a *App) ApplyUpdate() error {
 	updater, err := selfupdate.NewUpdater(selfupdate.Config{})
 	if err != nil {
 		return err
 	}
 
-	release, found, err := updater.DetectLatest(context.Background(), selfupdate.ParseSlug(repoSlug))
-	if err != nil {
-		return fmt.Errorf("detecting release: %w", err)
+	release := a.pendingRelease
+	if release == nil {
+		// Fallback path: called without a prior CheckForUpdate (shouldn't
+		// happen via the UI, but handle it gracefully).
+		var found bool
+		release, found, err = updater.DetectLatest(context.Background(), selfupdate.ParseSlug(repoSlug))
+		if err != nil {
+			return fmt.Errorf("detecting release: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("no update found")
+		}
 	}
-	if !found {
-		return fmt.Errorf("no update found")
-	}
+	a.pendingRelease = nil // consume
 
 	if goruntime.GOOS == "darwin" {
 		return a.applyMacOSUpdate(release)
@@ -117,7 +125,18 @@ func (a *App) applyMacOSUpdate(release *selfupdate.Release) error {
 	defer os.RemoveAll(tmpDir)
 
 	zipPath := filepath.Join(tmpDir, "update.zip")
-	if err := downloadFile(release.AssetURL, zipPath); err != nil {
+	onProgress := func(downloaded, total int64) {
+		pct := 0.0
+		if total > 0 {
+			pct = float64(downloaded) / float64(total) * 100
+		}
+		wailsruntime.EventsEmit(a.ctx, "update:progress", map[string]any{
+			"downloaded": downloaded,
+			"total":      total,
+			"percent":    pct,
+		})
+	}
+	if err := downloadFile(a.ctx, release.AssetURL, zipPath, onProgress); err != nil {
 		return fmt.Errorf("downloading update: %w", err)
 	}
 
@@ -158,8 +177,38 @@ func (a *App) applyMacOSUpdate(release *selfupdate.Release) error {
 	return nil
 }
 
-func downloadFile(url, dst string) error {
-	resp, err := http.Get(url) //nolint:noctx
+// progressReader wraps an io.Reader and calls onProgress after each read,
+// throttled to once per integer-percent change.
+type progressReader struct {
+	r          io.Reader
+	total      int64
+	downloaded int64
+	lastPct    int
+	onProgress func(downloaded, total int64)
+}
+
+func (pr *progressReader) Read(b []byte) (int, error) {
+	n, err := pr.r.Read(b)
+	if n > 0 && pr.total > 0 {
+		pr.downloaded += int64(n)
+		newPct := int(float64(pr.downloaded) / float64(pr.total) * 100)
+		if newPct != pr.lastPct {
+			pr.lastPct = newPct
+			pr.onProgress(pr.downloaded, pr.total)
+		}
+	}
+	return n, err
+}
+
+func downloadFile(ctx context.Context, url, dst string, onProgress func(downloaded, total int64)) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -172,7 +221,12 @@ func downloadFile(url, dst string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
+
+	var src io.Reader = resp.Body
+	if onProgress != nil {
+		src = &progressReader{r: resp.Body, total: resp.ContentLength, onProgress: onProgress}
+	}
+	_, err = io.Copy(f, src)
 	return err
 }
 

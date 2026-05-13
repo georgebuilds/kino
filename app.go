@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	selfupdate "github.com/creativeprojects/go-selfupdate"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"kino/internal/db"
@@ -17,8 +18,9 @@ import (
 // App is the Wails application struct. All exported methods become callable
 // from the Vue frontend via the generated bindings.
 type App struct {
-	ctx context.Context
-	db  *db.DB
+	ctx           context.Context
+	db            *db.DB
+	pendingRelease *selfupdate.Release // cached by CheckForUpdate, consumed by ApplyUpdate
 }
 
 func NewApp() *App { return &App{} }

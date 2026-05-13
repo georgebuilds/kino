@@ -61,6 +61,16 @@
             <span class="text-body-sm" style="font-weight:500;">
               v{{ updateInfo!.version }} is available
             </span>
+            <template v-if="updateStatus === 'updating'">
+              <div class="update-progress">
+                <div class="update-progress__bar">
+                  <div class="update-progress__fill" :style="{ width: `${downloadProgress}%` }"></div>
+                </div>
+                <span class="update-progress__label">
+                  {{ downloadProgress > 0 ? `${downloadProgress}%` : 'Downloading…' }}
+                </span>
+              </div>
+            </template>
           </div>
           <button
             class="btn btn--primary btn--sm"
@@ -305,6 +315,7 @@ import { useThemeStore } from '../stores/theme'
 import type { ThemePreference } from '../stores/theme'
 import { storeToRefs } from 'pinia'
 import { GetFileState, MoveFile, CloudFolderSuggestions, GetAppVersion, CheckForUpdate, ApplyUpdate } from '../../wailsjs/go/main/App'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 import type { main } from '../../wailsjs/go/models'
 import { useCategoriesStore } from '../stores/categories'
 import type { Category } from '../stores/categories'
@@ -325,9 +336,10 @@ const themeOptions: { value: ThemePreference; label: string; icon: any }[] = [
 // ── Updates ───────────────────────────────────────────────────────────────────
 const appVersion  = ref('')
 type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'updating' | 'error'
-const updateStatus = ref<UpdateStatus>('idle')
-const updateInfo   = ref<main.UpdateInfo | null>(null)
-const updateError  = ref<string | null>(null)
+const updateStatus   = ref<UpdateStatus>('idle')
+const updateInfo     = ref<main.UpdateInfo | null>(null)
+const updateError    = ref<string | null>(null)
+const downloadProgress = ref(0)
 
 async function checkForUpdate() {
   updateStatus.value = 'checking'
@@ -347,8 +359,14 @@ async function checkForUpdate() {
 }
 
 async function applyUpdate() {
-  updateStatus.value = 'updating'
-  updateError.value  = null
+  updateStatus.value   = 'updating'
+  updateError.value    = null
+  downloadProgress.value = 0
+
+  const offProgress = EventsOn('update:progress', (data: { percent: number }) => {
+    downloadProgress.value = Math.round(data.percent)
+  })
+
   try {
     await ApplyUpdate()
     // On Linux/Windows the app quits; on macOS it relaunches — either way
@@ -356,6 +374,8 @@ async function applyUpdate() {
   } catch (e: any) {
     updateError.value  = e?.message ?? 'Update failed'
     updateStatus.value = 'error'
+  } finally {
+    offProgress()
   }
 }
 
@@ -500,6 +520,22 @@ async function doDelete() {
   background: rgba(220,38,38,0.08);
   border: 1px solid rgba(220,38,38,0.2);
   color: var(--color-expense);
+}
+.update-progress {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-top: 6px;
+}
+.update-progress__bar {
+  flex: 1; height: 4px; border-radius: 2px;
+  background: rgba(26,138,97,0.15); overflow: hidden;
+}
+.update-progress__fill {
+  height: 100%; border-radius: 2px;
+  background: #1A8A61; transition: width 0.2s ease;
+}
+.update-progress__label {
+  font-size: 11px; color: var(--color-text-secondary);
+  white-space: nowrap;
 }
 
 /* ── Category section ── */

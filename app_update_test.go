@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,7 +30,7 @@ func TestDownloadFile_WritesBodyToDisk(t *testing.T) {
 	defer srv.Close()
 
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := downloadFile(srv.URL, dst); err != nil {
+	if err := downloadFile(context.Background(), srv.URL, dst, nil); err != nil {
 		t.Fatalf("downloadFile: %v", err)
 	}
 	got, err := os.ReadFile(dst)
@@ -47,7 +48,7 @@ func TestDownloadFile_Non200_Errors(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := downloadFile(srv.URL, filepath.Join(t.TempDir(), "out"))
+	err := downloadFile(context.Background(), srv.URL, filepath.Join(t.TempDir(), "out"), nil)
 	if err == nil {
 		t.Error("expected error for 404 response")
 	}
@@ -59,7 +60,7 @@ func TestDownloadFile_ConnectionRefused_Errors(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	err := downloadFile(url, filepath.Join(t.TempDir(), "out"))
+	err := downloadFile(context.Background(), url, filepath.Join(t.TempDir(), "out"), nil)
 	if err == nil {
 		t.Error("expected error for refused connection")
 	}

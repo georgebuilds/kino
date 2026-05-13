@@ -363,7 +363,7 @@ jobs:
           NOTES: ${{ inputs.notes }}
         run: |
           BODY="# kino ${TAG}"$'\n\n'
-          BODY+="Local-first personal finance desktop app. Your data lives in a single \`.kino\` SQLite file on your machine — no accounts, no sync, no telemetry."$'\n\n'
+          BODY+="Local-first personal finance desktop app. Your data lives in a single \`.kino\` file on your machine — no accounts, no sync, no telemetry."$'\n\n'
           if [[ "$MAC_RESULT" == "success" ]]; then
             BODY+="## macOS (Apple Silicon)"$'\n\n'
             BODY+="1. Download \`kino-${TAG}-darwin-arm64.zip\` and unzip it."$'\n'

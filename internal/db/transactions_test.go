@@ -602,6 +602,20 @@ func TestFindFuzzyDuplicates_Empty(t *testing.T) {
 	}
 }
 
+func TestFindFuzzyDuplicates_BatchTooLarge_ReturnsError(t *testing.T) {
+	d := newTestDB(t)
+
+	ids := make([]int64, 401)
+	for i := range ids {
+		ids[i] = int64(i + 1)
+	}
+
+	_, err := d.FindFuzzyDuplicates(ids)
+	if err == nil {
+		t.Fatal("FindFuzzyDuplicates(401 ids) returned nil error, want error")
+	}
+}
+
 func TestMergeTransaction_BothOFX_KeepsKeepHash(t *testing.T) {
 	d := newTestDB(t)
 	acc := insertTestAccount(t, d, "AccMergeOFX")
@@ -684,6 +698,24 @@ func TestMergeTransaction_KeepHasCategoryAndNotes_NotOverwritten(t *testing.T) {
 	}
 	if got.CategoryID == nil || *got.CategoryID != keepCat.ID {
 		t.Fatalf("CategoryID = %v, want %d (keep's category not overwritten)", got.CategoryID, keepCat.ID)
+	}
+}
+
+func TestMergeTransaction_SelfMerge_ReturnsError(t *testing.T) {
+	d := newTestDB(t)
+	acc := insertTestAccount(t, d, "AccSelfMerge")
+
+	tx := &models.Transaction{
+		AccountID: acc, Date: mustDate(2025, 1, 1), AmountCents: -100,
+		Payee: "X", ImportHash: "self-hash", ImportSource: "csv",
+	}
+	if err := d.CreateTransaction(tx); err != nil {
+		t.Fatalf("create tx: %v", err)
+	}
+
+	err := d.MergeTransaction(tx.ID, tx.ID)
+	if err == nil {
+		t.Fatal("MergeTransaction(same ID) returned nil, want error")
 	}
 }
 

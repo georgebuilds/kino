@@ -39,13 +39,14 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("kino: file must have %s extension", kinoExtension)
 	}
 
-	sqlDB, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_foreign_keys=on")
+	sqlDB, err := sql.Open("sqlite", "file:"+path+"?_journal_mode=WAL&_foreign_keys=on")
 	if err != nil {
 		return nil, fmt.Errorf("kino: open %s: %w", path, err)
 	}
 
 	// Keep a single writer connection — WAL handles concurrent reads fine.
 	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	db := &DB{DB: sqlDB, Path: path}
 	if err := db.migrate(); err != nil {
@@ -82,15 +83,23 @@ func (db *DB) migrate() error {
 		if version >= m.ver {
 			continue
 		}
-		if _, err := db.Exec(m.sql); err != nil {
+		tx, err := db.DB.Begin()
+		if err != nil {
+			return fmt.Errorf("migration v%d begin: %w", m.ver, err)
+		}
+		if _, err = tx.Exec(m.sql); err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("migration v%d: %w", m.ver, err)
 		}
-		_, err := db.Exec(
+		if _, err = tx.Exec(
 			`INSERT INTO kino_meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
 			m.ver,
-		)
-		if err != nil {
+		); err != nil {
+			_ = tx.Rollback()
 			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return fmt.Errorf("migration v%d commit: %w", m.ver, err)
 		}
 		version = m.ver
 	}

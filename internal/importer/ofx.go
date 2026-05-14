@@ -43,10 +43,8 @@ func isOFXv2(s string) bool {
 // as the opening tag:  <TRNAMT>-45.23
 
 func parseOFXv1(s string, accountID int64) ([]Row, string, []string, error) {
-	bodyStart := strings.Index(s, "<OFX>")
-	if bodyStart == -1 {
-		bodyStart = strings.Index(s, "<ofx>")
-	}
+	// Case-insensitive search for <OFX> using the original string's position.
+	bodyStart := strings.Index(strings.ToUpper(s), "<OFX>")
 	if bodyStart == -1 {
 		return nil, "", nil, fmt.Errorf("ofx: cannot find <OFX> element")
 	}
@@ -109,7 +107,10 @@ func tokeniseOFX1(s string) []ofxToken {
 		start := i + lt
 		gt := strings.IndexByte(s[start:], '>')
 		if gt == -1 {
-			break
+			// Malformed tag: no closing '>'. Skip this '<' and keep scanning
+			// rather than silently dropping all remaining content.
+			i = start + 1
+			continue
 		}
 		tagEnd := start + gt
 		tag := strings.ToUpper(strings.TrimSpace(s[start+1 : tagEnd]))
@@ -264,6 +265,7 @@ func parseOFXv2(data []byte, accountID int64) ([]Row, string, []string, error) {
 	var rows []Row
 	var warnings []string
 	var firstAcctExtID string
+	seenAcctIDs := make(map[string]struct{})
 	for _, stmt := range stmts {
 		acctExtID := stmt.AcctID
 		if acctExtID == "" {
@@ -272,6 +274,7 @@ func parseOFXv2(data []byte, accountID int64) ([]Row, string, []string, error) {
 		if firstAcctExtID == "" {
 			firstAcctExtID = acctExtID
 		}
+		seenAcctIDs[acctExtID] = struct{}{}
 		for _, tx := range stmt.Txs {
 			o := ofxRow{
 				fitid:    tx.FITID,
@@ -293,6 +296,9 @@ func parseOFXv2(data []byte, accountID int64) ([]Row, string, []string, error) {
 			}
 			rows = append(rows, row)
 		}
+	}
+	if len(seenAcctIDs) > 1 {
+		warnings = append(warnings, fmt.Sprintf("ofx: file contains %d accounts; only the first account (%s) is returned as the external ID", len(seenAcctIDs), firstAcctExtID))
 	}
 	return rows, firstAcctExtID, warnings, nil
 }

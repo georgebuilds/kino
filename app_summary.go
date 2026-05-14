@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"kino/internal/db"
+)
 
 // MonthSummary is everything the Overview page needs in one query round-trip.
 type MonthSummary struct {
@@ -48,7 +52,7 @@ func (a *App) GetMonthSummary(year, month int) (MonthSummary, error) {
 	var expenseSigned int64
 	if err := a.db.QueryRow(`
 		SELECT
-			COALESCE(SUM(amount_cents), 0)                                                    AS month_net,
+			COALESCE(SUM(CASE WHEN is_transfer = 0 THEN amount_cents END), 0)                     AS month_net,
 			COALESCE(SUM(CASE WHEN amount_cents > 0 AND is_transfer = 0 THEN amount_cents END), 0) AS income,
 			COALESCE(SUM(CASE WHEN amount_cents < 0 AND is_transfer = 0 THEN amount_cents END), 0) AS expense_signed
 		FROM transactions
@@ -60,19 +64,19 @@ func (a *App) GetMonthSummary(year, month int) (MonthSummary, error) {
 	s.SavedCents = s.IncomeCents - s.ExpenseCents
 
 	// Category breakdown for expense transactions.
-	// NULL-category rows are bucketed into the seeded "Uncategorized" category (id 12)
+	// NULL-category rows are bucketed into the seeded "Uncategorized" category
 	// so the breakdown reconciles with ExpenseCents.
 	rows, err := a.db.Query(`
 		SELECT c.id, c.name, c.color, ABS(SUM(t.amount_cents)) as total
 		FROM transactions t
-		JOIN categories c ON c.id = COALESCE(t.category_id, 12)
+		JOIN categories c ON c.id = COALESCE(t.category_id, ?)
 		WHERE t.date >= ? AND t.date < ?
 		  AND t.amount_cents < 0
 		  AND t.is_transfer = 0
 		GROUP BY c.id
 		ORDER BY total DESC
 		LIMIT 12
-	`, from, to)
+	`, db.UncategorizedCategoryID, from, to)
 	if err != nil {
 		return s, err
 	}
@@ -84,6 +88,9 @@ func (a *App) GetMonthSummary(year, month int) (MonthSummary, error) {
 			return MonthSummary{}, err
 		}
 		s.CategoryTotals = append(s.CategoryTotals, ct)
+	}
+	if err := rows.Err(); err != nil {
+		return MonthSummary{}, err
 	}
 	if len(s.CategoryTotals) > 0 {
 		s.TopCategory = s.CategoryTotals[0].CategoryName

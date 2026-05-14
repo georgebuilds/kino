@@ -393,9 +393,13 @@ func TestLooksLikeHeader(t *testing.T) {
 		rec  []string
 		want bool
 	}{
-		{"contains Date", []string{"Date", "Description", "Amount"}, true},
-		{"case-insensitive 'AMOUNT'", []string{"foo", "AMOUNT"}, true},
-		{"trailing whitespace tolerated", []string{"  date  ", "x"}, true},
+		{"contains Date+Description+Amount", []string{"Date", "Description", "Amount"}, true},
+		// Requires at least 2 keyword matches; a single match is not enough.
+		{"single keyword match not enough", []string{"foo", "AMOUNT"}, false},
+		// Two keyword matches, no numeric cells.
+		{"two keyword matches", []string{"Date", "Amount"}, true},
+		{"trailing whitespace tolerated", []string{"  date  ", "description"}, true},
+		// A date-like cell (digits) causes rejection regardless of keyword count.
 		{"data row with values", []string{"2025-01-15", "Starbucks", "-4.95"}, false},
 		{"only unknown columns", []string{"foo", "bar", "baz"}, false},
 		{"empty record", []string{}, false},

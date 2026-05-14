@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div class="modal-backdrop" @click.self="$emit('close')">
-      <div class="modal" role="dialog" :aria-label="isEdit ? 'Edit category' : 'New category'">
+      <div ref="modalRef" class="modal" role="dialog" aria-modal="true" :aria-label="isEdit ? 'Edit category' : 'New category'">
 
         <div class="modal__header">
           <h2 class="modal__title">{{ isEdit ? 'Edit category' : 'New category' }}</h2>
@@ -49,7 +49,7 @@
           <!-- Color -->
           <div class="field">
             <label class="field__label">Color</label>
-            <div class="color-swatches">
+            <div class="color-swatches" role="group" aria-label="Color">
               <button
                 v-for="swatch in COLOR_SWATCHES"
                 :key="swatch"
@@ -57,7 +57,8 @@
                 class="color-swatch"
                 :class="{ 'color-swatch--active': draft.color === swatch }"
                 :style="{ background: swatch }"
-                :title="swatch"
+                :aria-label="swatchLabel(swatch)"
+                :aria-pressed="draft.color === swatch"
                 @click="draft.color = swatch"
               >
                 <Check v-if="draft.color === swatch" :size="10" />
@@ -86,7 +87,8 @@
                 type="button"
                 class="icon-btn"
                 :class="{ 'icon-btn--active': draft.icon === opt.name }"
-                :title="opt.name"
+                :aria-label="opt.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())"
+                :aria-pressed="draft.icon === opt.name"
                 @click="draft.icon = opt.name"
               >
                 <component :is="opt.component" :size="16" />
@@ -123,11 +125,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { X, Check, Pipette, Loader2 } from 'lucide-vue-next'
 import { useCategoriesStore } from '../../stores/categories'
 import type { Category } from '../../stores/categories'
 import { ICON_OPTIONS, COLOR_SWATCHES } from '../../utils/categoryIcons'
+import { useFocusTrap } from './useFocusTrap'
 
 const props = defineProps<{
   category?:       Category   // undefined = create mode
@@ -205,6 +208,18 @@ const depthWarning = computed(() => {
 
 // ── Color ─────────────────────────────────────────────────────────────────────
 
+const SWATCH_NAMES: Record<string, string> = {
+  '#1A8A61': 'Green', '#2A9D8F': 'Teal', '#4A9E8A': 'Sage', '#2A7FA8': 'Cerulean',
+  '#1D6FA0': 'Steel blue', '#3B82F6': 'Blue', '#6D4C9E': 'Purple', '#8B5CF6': 'Violet',
+  '#B84A72': 'Rose', '#EC4899': 'Pink', '#EF4444': 'Red', '#C4603A': 'Burnt orange',
+  '#F97316': 'Orange', '#C4943A': 'Amber', '#A87A28': 'Gold', '#EAB308': 'Yellow',
+  '#5A6B60': 'Slate', '#374151': 'Charcoal',
+}
+
+function swatchLabel(hex: string): string {
+  return SWATCH_NAMES[hex] ?? `Color ${hex}`
+}
+
 const isCustomColor = computed(() =>
   !!draft.value.color && !COLOR_SWATCHES.includes(draft.value.color)
 )
@@ -251,10 +266,21 @@ async function save() {
   }
 }
 
-// ── Focus ─────────────────────────────────────────────────────────────────────
+// ── Focus / accessibility ─────────────────────────────────────────────────────
 
+const modalRef  = ref<HTMLElement | null>(null)
 const nameInput = ref<HTMLInputElement | null>(null)
-onMounted(() => nextTick(() => nameInput.value?.focus()))
+
+useFocusTrap(modalRef)
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  nextTick(() => nameInput.value?.focus())
+})
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>

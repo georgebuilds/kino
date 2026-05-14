@@ -26,7 +26,12 @@
             :key="folder.path"
             class="setup__cloud-item"
             :class="{ 'setup__cloud-item--selected': selectedFolder === folder.path }"
+            tabindex="0"
+            role="option"
+            :aria-selected="selectedFolder === folder.path"
             @click="selectedFolder = folder.path"
+            @keydown.enter="selectedFolder = folder.path"
+            @keydown.space.prevent="selectedFolder = folder.path"
           >
             <div class="setup__cloud-icon">
               <Cloud :size="16" />
@@ -82,6 +87,7 @@ onMounted(async () => {
 async function onCreate() {
   error.value = ''
   try {
+    // TODO: pass selectedFolder.value once CreateFile() backend accepts a path parameter
     await CreateFile()
     router.push('/')
   } catch (e: any) {

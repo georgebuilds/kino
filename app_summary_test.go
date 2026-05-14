@@ -79,9 +79,9 @@ func TestGetMonthSummary_PopulatesAllFields(t *testing.T) {
 		t.Errorf("SavedCents = %d, want 129999", s.SavedCents)
 	}
 
-	// NetWorthDelta = SUM(all amount_cents) = 50000 - 20000 - 5000 + 99999 = 124999
-	if s.NetWorthDeltaCents != 124999 {
-		t.Errorf("NetWorthDeltaCents = %d, want 124999", s.NetWorthDeltaCents)
+	// NetWorthDelta = SUM(non-transfer amount_cents) = 50000 - 20000 + 99999 = 129999
+	if s.NetWorthDeltaCents != 129999 {
+		t.Errorf("NetWorthDeltaCents = %d, want 129999", s.NetWorthDeltaCents)
 	}
 
 	if s.TopCategory != "Rent" {

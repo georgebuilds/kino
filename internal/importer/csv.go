@@ -133,16 +133,40 @@ func ParseCSV(r io.Reader, accountID int64) ([]Row, []string, error) {
 	return rows, warnings, nil
 }
 
-// looksLikeHeader returns true when a record contains at least one recognised
-// column-kind keyword.
+// looksLikeHeader returns true when a record contains at least 2 recognised
+// column-kind keywords and no cell looks like a numeric data value. Requiring
+// multiple keyword matches prevents data rows that happen to contain a word
+// like "credit" from being mistaken for a header.
 func looksLikeHeader(rec []string) bool {
+	matches := 0
 	for _, cell := range rec {
 		k := strings.ToLower(strings.TrimSpace(cell))
 		if _, ok := knownHeaders[k]; ok {
-			return true
+			matches++
+		}
+		// A cell that looks like a number (optional sign/currency, then digits)
+		// is a strong signal that this is a data row, not a header.
+		if looksNumeric(strings.TrimSpace(cell)) {
+			return false
 		}
 	}
-	return false
+	return matches >= 2
+}
+
+// looksNumeric returns true for strings that are clearly numeric data values
+// (digits, possibly preceded by an optional sign or currency symbol, and
+// optionally containing decimal separators).
+func looksNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Strip common leading currency/sign characters.
+	s = strings.TrimLeft(s, "$€£-+(")
+	if s == "" {
+		return false
+	}
+	// Must start with a digit after stripping.
+	return s[0] >= '0' && s[0] <= '9'
 }
 
 func isBlankRow(rec []string) bool {
@@ -246,7 +270,13 @@ func parseCSVRow(rec []string, cm colMap, accountID int64) (Row, error) {
 		}
 		switch {
 		case debitCents != 0:
-			cents = -abs(debitCents) // debit = money out = negative
+			// Debit column convention: positive values = money out (negate),
+			// but preserve negative debit values as-is (credit reversals).
+			if debitCents > 0 {
+				cents = -debitCents
+			} else {
+				cents = debitCents
+			}
 		case creditCents != 0:
 			cents = abs(creditCents) // credit = money in = positive
 		}

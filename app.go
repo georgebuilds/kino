@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	selfupdate "github.com/creativeprojects/go-selfupdate"
@@ -18,6 +19,7 @@ import (
 // App is the Wails application struct. All exported methods become callable
 // from the Vue frontend via the generated bindings.
 type App struct {
+	mu            sync.RWMutex
 	ctx           context.Context
 	db            *db.DB
 	pendingRelease *selfupdate.Release // cached by CheckForUpdate, consumed by ApplyUpdate
@@ -32,7 +34,9 @@ func (a *App) startup(ctx context.Context) {
 	last, _ := lastFilePath()
 	if last != "" {
 		if opened, err := db.Open(last); err == nil {
+			a.mu.Lock()
 			a.db = opened
+			a.mu.Unlock()
 		}
 	}
 }
@@ -54,6 +58,8 @@ type FileState struct {
 
 // GetFileState returns the current .kino file state.
 func (a *App) GetFileState() FileState {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if a.db == nil {
 		return FileState{}
 	}
@@ -153,7 +159,7 @@ func copyFileContents(src, dst string) error {
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -228,6 +234,8 @@ type CloudFolder struct {
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 func (a *App) requireDB() error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if a.db == nil {
 		return fmt.Errorf("no file open — create or open a .kino file first")
 	}
@@ -235,16 +243,20 @@ func (a *App) requireDB() error {
 }
 
 func (a *App) openPath(path string, isNew bool) (FileState, error) {
+	a.mu.Lock()
 	if a.db != nil {
 		_ = a.db.Close()
 	}
+	a.mu.Unlock()
 
 	opened, err := db.Open(path)
 	if err != nil {
 		return FileState{}, err
 	}
 
+	a.mu.Lock()
 	a.db = opened
+	a.mu.Unlock()
 	_ = saveLastFilePath(path)
 
 	return FileState{Path: path, IsOpen: true, IsNew: isNew}, nil

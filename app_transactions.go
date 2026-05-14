@@ -47,7 +47,11 @@ func (a *App) UpdateTransaction(t models.Transaction) error {
 		return err
 	}
 	// Fetch old to know which account might need rebalancing.
-	old, _ := a.db.GetTransaction(t.ID)
+	old, err := a.db.GetTransaction(t.ID)
+	if err != nil {
+		// Can't determine old account; proceed and recalc the new account only.
+		old = nil
+	}
 	if err := a.db.UpdateTransaction(&t); err != nil {
 		return err
 	}
@@ -67,7 +71,11 @@ func (a *App) DeleteTransaction(id int64) error {
 	if err := a.requireDB(); err != nil {
 		return err
 	}
-	t, _ := a.db.GetTransaction(id)
+	t, err := a.db.GetTransaction(id)
+	if err != nil {
+		// Can't determine account; proceed with deletion, skip recalc.
+		t = nil
+	}
 	if err := a.db.DeleteTransaction(id); err != nil {
 		return err
 	}

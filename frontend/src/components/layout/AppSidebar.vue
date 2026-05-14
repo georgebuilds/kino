@@ -30,7 +30,7 @@
         :item="item"
         :collapsed="collapsed"
       />
-      <button class="sidebar__collapse-btn" @click="$emit('toggle')">
+      <button class="sidebar__collapse-btn" @click="$emit('toggle')" aria-label="Toggle sidebar">
         <ChevronLeft v-if="!collapsed" :size="16" />
         <ChevronRight v-else :size="16" />
       </button>

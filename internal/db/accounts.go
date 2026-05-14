@@ -73,7 +73,7 @@ func (db *DB) CreateAccount(a *models.Account) error {
 }
 
 func (db *DB) UpdateAccount(a *models.Account) error {
-	_, err := db.Exec(`
+	res, err := db.Exec(`
 		UPDATE accounts SET
 			name = ?, type = ?, institution = ?, balance_cents = ?,
 			currency = ?, is_hidden = ?, sort_order = ?,
@@ -81,12 +81,26 @@ func (db *DB) UpdateAccount(a *models.Account) error {
 		WHERE id = ?
 	`, a.Name, a.Type, a.Institution, a.BalanceCents,
 		a.Currency, a.IsHidden, a.SortOrder, a.ID)
-	return err
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("account not found")
+	}
+	return nil
 }
 
 func (db *DB) DeleteAccount(id int64) error {
-	_, err := db.Exec(`DELETE FROM accounts WHERE id = ?`, id)
-	return err
+	res, err := db.Exec(`DELETE FROM accounts WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("account not found")
+	}
+	return nil
 }
 
 // RecalcBalance recomputes and stores an account's balance from its transactions.

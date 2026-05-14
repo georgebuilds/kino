@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div class="modal-backdrop" @click.self="$emit('close')">
-      <div class="modal" role="dialog" :aria-label="isEdit ? 'Edit budget' : 'Add budget'">
+      <div ref="modalRef" class="modal" role="dialog" aria-modal="true" :aria-label="isEdit ? 'Edit budget' : 'Add budget'">
 
         <div class="modal__header">
           <h2 class="modal__title">{{ isEdit ? 'Edit budget' : 'Add budget' }}</h2>
@@ -63,6 +63,7 @@
               @click="form.rollsOver = !form.rollsOver"
               role="switch"
               :aria-checked="form.rollsOver"
+              aria-label="Roll over unspent budget"
             >
               <span class="toggle__knob" />
             </button>
@@ -85,10 +86,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { X, Loader2 } from 'lucide-vue-next'
 import type { BudgetLine } from '../../stores/budgets'
 import type { Category }   from '../../stores/categories'
+import { useFocusTrap } from './useFocusTrap'
 
 const props = defineProps<{
   line?:       BudgetLine      // defined = edit, undefined = create
@@ -102,9 +104,18 @@ const emit = defineEmits<{
   (e: 'saved', payload: { categoryId: number; amountCents: number; rollsOver: boolean }): void
 }>()
 
-const isEdit = computed(() => !!props.line)
-const busy   = ref(false)
-const error  = ref<string | null>(null)
+const isEdit   = computed(() => !!props.line)
+const busy     = ref(false)
+const error    = ref<string | null>(null)
+const modalRef = ref<HTMLElement | null>(null)
+
+useFocusTrap(modalRef)
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 // Categories available to budget (expense only, not already budgeted — unless editing)
 const availableCategories = computed(() => {
@@ -145,15 +156,12 @@ async function submit() {
   if (isNaN(raw) || raw <= 0) { error.value = 'Please enter a valid amount.'; return }
 
   busy.value = true
-  try {
-    emit('saved', {
-      categoryId:  form.value.categoryId as number,
-      amountCents: Math.round(raw * 100),
-      rollsOver:   form.value.rollsOver,
-    })
-  } finally {
-    busy.value = false
-  }
+  emit('saved', {
+    categoryId:  form.value.categoryId as number,
+    amountCents: Math.round(raw * 100),
+    rollsOver:   form.value.rollsOver,
+  })
+  // busy stays true until the parent closes this modal
 }
 </script>
 

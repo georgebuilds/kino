@@ -116,9 +116,10 @@ func (a *App) bulkImport(accountID int64, rows []importer.Row, warnings []string
 	// Convert importer.Row → models.Transaction
 	today := time.Now().UTC()
 	txs := make([]models.Transaction, 0, len(rows))
-	for _, r := range rows {
+	for i, r := range rows {
 		t, err := time.Parse("2006-01-02", r.Date)
 		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("row %d: invalid date %q, skipped", i+1, r.Date))
 			continue
 		}
 		txs = append(txs, models.Transaction{
@@ -185,12 +186,13 @@ func (a *App) ResolveDuplicate(action string, keepID, deleteID int64) error {
 		return nil
 
 	case DupeDeleteNew:
+		// Fetch the deleted row's account BEFORE deleting it.
+		deletedTx, _ := a.db.GetTransaction(deleteID)
 		if err := a.db.DeleteTransaction(deleteID); err != nil {
 			return err
 		}
-		// Recalc for the account the deleted row belonged to
-		if tx, err := a.db.GetTransaction(keepID); err == nil && tx != nil {
-			_ = a.db.RecalcBalance(tx.AccountID)
+		if deletedTx != nil {
+			_ = a.db.RecalcBalance(deletedTx.AccountID)
 		}
 		return nil
 

@@ -52,17 +52,16 @@ func (db *DB) GetNetWorthHistory(months int) ([]NetWorthPoint, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	accMap := map[int64]accRec{}
 	for rows.Next() {
 		var id int64
 		var r accRec
 		if err := rows.Scan(&id, &r.typ, &r.balance); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		accMap[id] = r
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -79,7 +78,7 @@ func (db *DB) GetNetWorthHistory(months int) ([]NetWorthPoint, error) {
 	// ── 2. Generate month labels (ascending: oldest … current) ───────────────
 	type mk struct{ y, m int }
 	monthKeys := make([]mk, months)
-	now := time.Now()
+	now := time.Now().UTC()
 	for i := 0; i < months; i++ {
 		t := now.AddDate(0, -(months-1-i), 0)
 		monthKeys[i] = mk{t.Year(), int(t.Month())}
@@ -101,6 +100,7 @@ func (db *DB) GetNetWorthHistory(months int) ([]NetWorthPoint, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer txRows.Close()
 
 	type monthDelta struct{ assets, liab int64 }
 	deltas := map[string]monthDelta{}
@@ -110,7 +110,6 @@ func (db *DB) GetNetWorthHistory(months int) ([]NetWorthPoint, error) {
 		var month string
 		var delta int64
 		if err := txRows.Scan(&accID, &month, &delta); err != nil {
-			txRows.Close()
 			return nil, err
 		}
 		r, ok := accMap[accID]
@@ -125,7 +124,6 @@ func (db *DB) GetNetWorthHistory(months int) ([]NetWorthPoint, error) {
 		}
 		deltas[month] = md
 	}
-	txRows.Close()
 	if err := txRows.Err(); err != nil {
 		return nil, err
 	}

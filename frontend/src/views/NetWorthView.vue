@@ -62,9 +62,12 @@
           :width="svgW"
           :height="SVG_H"
           class="nw-svg"
+          role="img"
+          aria-label="Net worth history chart"
           @mousemove="onMouseMove"
           @mouseleave="tooltip = null"
         >
+          <title>Net worth history chart</title>
           <defs>
             <linearGradient id="nw-area-grad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%"   :stop-color="areaColor" stop-opacity="0.35" />
@@ -215,13 +218,17 @@ const LIABILITY_TYPES = new Set(['credit_card','loan'])
 const period  = ref(12)
 const points  = ref<NetWorthPoint[]>([])
 const loading = ref(false)
+const error   = ref<string | null>(null)
 
 const accountsStore = useAccountsStore()
 
 async function load() {
   loading.value = true
+  error.value   = null
   try {
     points.value = await GetNetWorthHistory(period.value)
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to load net worth history'
   } finally {
     loading.value = false
   }
@@ -311,12 +318,14 @@ const innerH = computed(() => SVG_H - MARGIN.t - MARGIN.b)
 // Y range
 const yMin = computed(() => {
   if (!points.value.length) return 0
-  const mn = Math.min(...points.value.map(p => p.netWorth))
+  const values = points.value.map(p => p.netWorth)
+  const mn = values.reduce((a, b) => Math.min(a, b), Infinity)
   return mn < 0 ? mn * 1.1 : Math.min(0, mn * 0.9)
 })
 const yMax = computed(() => {
   if (!points.value.length) return 1
-  const mx = Math.max(...points.value.map(p => p.netWorth))
+  const values = points.value.map(p => p.netWorth)
+  const mx = values.reduce((a, b) => Math.max(a, b), -Infinity)
   return mx * 1.1 || 1
 })
 

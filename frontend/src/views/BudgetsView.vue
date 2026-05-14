@@ -179,9 +179,9 @@
     <!-- Delete confirm -->
     <Teleport to="body">
       <div v-if="deleteTarget" class="modal-backdrop" @click.self="deleteTarget = null">
-        <div class="modal modal--sm" role="alertdialog">
+        <div class="modal modal--sm" role="alertdialog" aria-labelledby="bud-delete-title">
           <div class="modal__header">
-            <h2 class="modal__title">Remove budget?</h2>
+            <h2 id="bud-delete-title" class="modal__title">Remove budget?</h2>
           </div>
           <div class="modal__body">
             <p class="text-body" style="color:var(--color-text-secondary)">
@@ -223,7 +223,7 @@ import {
 import BudgetModal from '../components/ui/BudgetModal.vue'
 import { useBudgetsStore }     from '../stores/budgets'
 import { useCategoriesStore }  from '../stores/categories'
-import type { BudgetLine, UnbudgetedLine } from '../stores/budgets'
+import type { Budget, BudgetLine, UnbudgetedLine } from '../stores/budgets'
 
 const store            = useBudgetsStore()
 const categoriesStore  = useCategoriesStore()
@@ -254,7 +254,7 @@ const monthLabel = computed(() => {
 const isFutureMonth = computed(() => {
   const now = new Date()
   return store.year > now.getFullYear() ||
-    (store.year === now.getFullYear() && store.month >= now.getMonth() + 1)
+    (store.year === now.getFullYear() && store.month > now.getMonth() + 1)
 })
 
 // ── Summary bar ───────────────────────────────────────────────────────────────
@@ -342,18 +342,18 @@ async function onSaved(payload: { categoryId: number; amountCents: number; rolls
       amountCents: payload.amountCents,
       period:      'monthly',
       rollsOver:   payload.rollsOver,
-      startDate:   today as any,
+      startDate:   today,
       endDate:     undefined,
-    } as any)
+    } as Budget)
   } else {
     await store.create({
       categoryId:  payload.categoryId,
       amountCents: payload.amountCents,
-      period:      'monthly' as any,
+      period:      'monthly',
       rollsOver:   payload.rollsOver,
-      startDate:   today as any,
+      startDate:   today,
       endDate:     undefined,
-    } as any)
+    })
   }
   closeModal()
 }

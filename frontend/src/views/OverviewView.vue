@@ -18,7 +18,7 @@
         NET WORTH
       </p>
       <div class="amount-display" style="margin-bottom: var(--space-3);">
-        <span class="currency-symbol">$</span>
+        <span class="currency-symbol">{{ (summary?.netWorthCents ?? 0) < 0 ? '-$' : '$' }}</span>
         <span class="amount-value">{{ formatWhole(summary?.netWorthCents ?? 0) }}</span>
         <span class="amount-cents">.{{ formatCents(summary?.netWorthCents ?? 0) }}</span>
       </div>
@@ -106,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-vue-next'
 import StatCard from '../components/ui/StatCard.vue'
 import AccountRow from '../components/ui/AccountRow.vue'
@@ -132,6 +132,8 @@ async function loadSummary() {
   summaryLoading.value = true
   try {
     summary.value = await GetMonthSummary(now.getFullYear(), now.getMonth() + 1)
+  } catch (e: any) {
+    console.error('Failed to load summary:', e?.message ?? e)
   } finally {
     summaryLoading.value = false
   }
@@ -145,12 +147,14 @@ async function refresh() {
   ])
 }
 
+const originalLimit = txStore.filter.limit
 onMounted(() => {
   txStore.filter.limit  = 10
   txStore.filter.offset = 0
   txStore.fetch()
   loadSummary()
 })
+onUnmounted(() => { txStore.filter.limit = originalLimit })
 
 // ── Derived ───────────────────────────────────────────────────────────────
 const recentTxs = computed(() => txStore.transactions.slice(0, 10))

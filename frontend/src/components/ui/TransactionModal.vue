@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div class="modal-backdrop" @click.self="$emit('close')">
-      <div class="modal" role="dialog" :aria-label="isEdit ? 'Edit transaction' : 'Add transaction'">
+      <div ref="modalRef" class="modal" role="dialog" aria-modal="true" :aria-label="isEdit ? 'Edit transaction' : 'Add transaction'">
 
         <!-- Header -->
         <div class="modal__header">
@@ -119,11 +119,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { X, Loader2 } from 'lucide-vue-next'
 import type { Transaction } from '../../stores/transactions'
 import type { Account }     from '../../stores/accounts'
 import type { Category }    from '../../stores/categories'
+import { useFocusTrap } from './useFocusTrap'
 
 const props = defineProps<{
   transaction?: Transaction
@@ -138,9 +139,18 @@ const emit = defineEmits<{
   (e: 'saved', t: Partial<Transaction>): void
 }>()
 
-const isEdit = computed(() => !!props.transaction)
-const busy   = ref(false)
-const error  = ref<string | null>(null)
+const isEdit   = computed(() => !!props.transaction)
+const busy     = ref(false)
+const error    = ref<string | null>(null)
+const modalRef = ref<HTMLElement | null>(null)
+
+useFocusTrap(modalRef)
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 // ── Form state ────────────────────────────────────────────────────────────────
 const txType       = ref<'expense' | 'income'>('expense')
@@ -221,11 +231,8 @@ async function submit() {
   }
 
   busy.value = true
-  try {
-    emit('saved', payload)
-  } finally {
-    busy.value = false
-  }
+  emit('saved', payload)
+  // busy stays true until the parent closes this modal
 }
 </script>
 

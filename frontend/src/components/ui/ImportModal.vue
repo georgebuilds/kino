@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div class="modal-backdrop" @click.self="maybeClose">
-      <div class="modal import-modal" role="dialog" aria-label="Import transactions">
+      <div ref="modalRef" class="modal import-modal" role="dialog" aria-modal="true" aria-label="Import transactions">
 
         <!-- ── Step 1: Choose source ─────────────────────────────────────── -->
         <template v-if="step === 'pick'">
@@ -228,7 +228,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   X, FileText, Landmark, Loader2, ChevronRight, ChevronLeft,
   AlertTriangle, ArrowRight, Copy, Trash2, GitMerge,
@@ -236,6 +236,7 @@ import {
 import { PickAndImportCSV, PickAndImportOFX, ResolveDuplicate } from '../../../wailsjs/go/main/App'
 import type { main } from '../../../wailsjs/go/models'
 import type { Account } from '../../stores/accounts'
+import { useFocusTrap } from './useFocusTrap'
 
 type ImportResult = main.ImportResult
 
@@ -247,6 +248,17 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'imported'): void  // triggers parent to refresh transactions
 }>()
+
+// ── Accessibility ─────────────────────────────────────────────────────────────
+const modalRef = ref<HTMLElement | null>(null)
+
+useFocusTrap(modalRef)
+
+function onEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape' && step.value === 'pick') emit('close')
+}
+onMounted(() => window.addEventListener('keydown', onEscape))
+onUnmounted(() => window.removeEventListener('keydown', onEscape))
 
 // ── State ─────────────────────────────────────────────────────────────────────
 type Step = 'pick' | 'result' | 'review'
@@ -279,8 +291,8 @@ async function runImport() {
       ? await PickAndImportCSV(id)
       : await PickAndImportOFX(id)
 
-    // User cancelled the file picker — res has an empty fileName
-    if (!res || (!res.inserted && !res.skipped && !res.possibleDupes?.length && !res.fileName)) {
+    // User cancelled the file picker — backend returns null/undefined
+    if (!res) {
       importing.value = false
       return
     }

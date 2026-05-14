@@ -58,6 +58,7 @@
         class="filter-bar__date"
         type="date"
         title="From date"
+        aria-label="Start date"
         @change="applyFilters"
       />
       <span class="filter-bar__date-sep">–</span>
@@ -67,6 +68,7 @@
         class="filter-bar__date"
         type="date"
         title="To date"
+        aria-label="End date"
         @change="applyFilters"
       />
 
@@ -188,9 +190,9 @@
     <!-- Delete confirm -->
     <Teleport to="body">
       <div v-if="deleteTarget" class="modal-backdrop" @click.self="deleteTarget = null">
-        <div class="modal modal--sm" role="alertdialog">
+        <div class="modal modal--sm" role="alertdialog" aria-labelledby="tx-delete-title">
           <div class="modal__header">
-            <h2 class="modal__title">Delete transaction?</h2>
+            <h2 id="tx-delete-title" class="modal__title">Delete transaction?</h2>
           </div>
           <div class="modal__body">
             <p class="text-body" style="color:var(--color-text-secondary)">
@@ -302,10 +304,7 @@ function loadMore() {
 
 // ── Grouping by date ──────────────────────────────────────────────────────────
 function txDate(tx: Transaction): string {
-  const d = tx.date
-  if (typeof d === 'string') return d.substring(0, 10)
-  if (d instanceof Date) return d.toISOString().substring(0, 10)
-  return String(d).substring(0, 10)
+  return tx.date.substring(0, 10)
 }
 
 interface TxGroup {
@@ -375,7 +374,6 @@ async function assignCategory(categoryId: number | null) {
 const showImportModal = ref(false)
 
 function onImported() {
-  txStore.resetFilter()
   txStore.fetch()
 }
 
@@ -388,12 +386,16 @@ function openEdit(tx: Transaction) { editTarget.value = { ...tx } as Transaction
 function closeModal() { showModal.value = false; editTarget.value = null }
 
 async function onSaved(draft: Partial<Transaction>) {
-  if (editTarget.value) {
-    await txStore.update({ ...editTarget.value, ...draft } as Transaction)
-  } else {
-    await txStore.create(draft as Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>)
+  try {
+    if (editTarget.value) {
+      await txStore.update({ ...editTarget.value, ...draft } as Transaction)
+    } else {
+      await txStore.create(draft as Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>)
+    }
+    closeModal()
+  } catch (e: any) {
+    console.error('Failed to save transaction:', e?.message ?? e)
   }
-  closeModal()
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────────

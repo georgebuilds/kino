@@ -20,25 +20,29 @@ func TestParseAmount(t *testing.T) {
 		{"euro symbol stripped", "€10", 1000, false},
 		{"pound symbol stripped", "£10", 1000, false},
 		{"single decimal digit padded", "5.5", 550, false},
-		{"three+ decimals truncated to 2", "5.555", 555, false},
+		{"three+ decimals rounded", "5.555", 556, false},
+		{"three+ decimals rounded down", "5.554", 555, false},
 		{"EU comma-decimal with dot thousands", "1.234,56", 123456, false},
-		// Note: production code only triggers EU mode when both '.' and ','
-		// are present. A lone comma is treated as a thousands separator.
-		{"lone comma treated as thousands separator", "1234,56", 12345600, false},
+		// Lone comma with 2 digits after → EU decimal separator.
+		{"lone comma EU decimal 2 digits", "1234,56", 123456, false},
+		// Lone comma with 1 digit after → EU decimal separator.
+		{"lone comma EU decimal 1 digit", "1234,5", 123450, false},
+		// Lone comma with 3+ digits after → thousands separator.
+		{"lone comma thousands separator", "1,234", 123400, false},
 		{"pure junk errors", "abc", 0, true},
+		{"trailing garbage errors", "123abc", 0, true},
 		{"pure punctuation errors", ".,", 0, true},
 		{"negative with currency", "-$45.00", -4500, false},
 		// Parentheses + currency symbol: both negative notation and $ stripping apply.
 		{"parens with currency", "($45.00)", -4500, false},
 		// Explicit zero string.
 		{"explicit zero", "0", 0, false},
-		// "1,56" has a comma but no dot, so the EU-detection branch (requires
-		// both '.' and ',') is not entered. The else branch strips the comma,
-		// leaving "156", which parses as 156 dollars = 15600 cents. This is
-		// acknowledged as a known quirk (see TODO in importer memory).
-		{"single-comma EU pure decimal treated as thousands-stripped", "1,56", 15600, false},
+		// Lone comma with 2 digits, small number.
+		{"single-comma EU small number", "1,56", 156, false},
 		// strings.Map strips all Unicode letters, so "USD" prefix is removed.
 		{"multi-letter currency code stripped", "USD 12.00", 1200, false},
+		// Overflow guard.
+		{"overflow value errors", "99999999999999999999", 0, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,7 +126,7 @@ func TestNormalizePayee(t *testing.T) {
 		{"legal suffix Inc.", "Acme Inc.", "acme"},
 		{"legal suffix LLC", "Acme LLC", "acme"},
 		{"legal suffix Corp", "Acme Corp", "acme"},
-		{"non-ASCII characters collapsed", "Café Roma", "caf  roma"}, // é replaced with space, collapsed via reSpaces => "caf roma"? Let's verify carefully.
+		{"non-ASCII printable characters preserved", "Café Roma", "café roma"},
 		{"multi-space collapsed", "Hello    World", "hello world"},
 		{"leading star stripped", "*WALMART", "walmart"},
 		{"lower-casing", "MIXED Case Inc", "mixed case"},
@@ -137,12 +141,6 @@ func TestNormalizePayee(t *testing.T) {
 		// strings.Trim removes the leading '-' because '-' is in the trim cutset.
 		{"leading dash trimmed", "-WALMART", "walmart"},
 	}
-	// Special case correction: reNonPrint replaces each non-ASCII byte
-	// (é is 2 UTF-8 bytes) with one space each, then reSpaces collapses
-	// runs of whitespace to a single space. So "Café Roma" → "Caf  Roma"
-	// (2 spaces from 2 bytes) → "Caf Roma" → "caf roma" after lower.
-	tests[5].want = "caf roma"
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := NormalizePayee(tc.input)

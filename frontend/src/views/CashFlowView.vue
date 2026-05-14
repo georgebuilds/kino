@@ -128,7 +128,7 @@ const monthLabel = computed(() =>
 const isFutureMonth = computed(() => {
   const n = new Date()
   return year.value > n.getFullYear() ||
-    (year.value === n.getFullYear() && month.value >= n.getMonth() + 1)
+    (year.value === n.getFullYear() && month.value > n.getMonth() + 1)
 })
 
 function prevMonth() {

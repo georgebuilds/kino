@@ -30,6 +30,24 @@ func TestGetSetting_MissingKey_ReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestGetSetting_EmptyKey_ReturnsError(t *testing.T) {
+	d := newTestDB(t)
+
+	_, err := d.GetSetting("")
+	if err == nil {
+		t.Fatal("GetSetting(\"\") returned nil error, want error")
+	}
+}
+
+func TestSetSetting_EmptyKey_ReturnsError(t *testing.T) {
+	d := newTestDB(t)
+
+	err := d.SetSetting("", "value")
+	if err == nil {
+		t.Fatal("SetSetting(\"\", ...) returned nil error, want error")
+	}
+}
+
 func TestSetSetting_Upsert(t *testing.T) {
 	d := newTestDB(t)
 

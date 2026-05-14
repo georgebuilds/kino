@@ -127,7 +127,7 @@ func (db *DB) UpdateTransaction(t *models.Transaction) error {
 		UPDATE transactions SET
 			account_id = ?, date = ?, amount_cents = ?, payee = ?,
 			payee_normalized = ?, notes = ?, category_id = ?,
-			is_transfer = ?, is_reconciled = ?,
+			is_transfer = ?, transfer_pair_id = ?, is_reconciled = ?,
 			updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
 		WHERE id = ?
 	`,
@@ -139,6 +139,7 @@ func (db *DB) UpdateTransaction(t *models.Transaction) error {
 		t.Notes,
 		nullInt64(t.CategoryID),
 		t.IsTransfer,
+		nullInt64(t.TransferPairID),
 		t.IsReconciled,
 		t.ID,
 	)
@@ -224,6 +225,9 @@ type PossibleDupe struct {
 func (db *DB) FindFuzzyDuplicates(newIDs []int64) ([]PossibleDupe, error) {
 	if len(newIDs) == 0 {
 		return nil, nil
+	}
+	if len(newIDs) > 400 {
+		return nil, fmt.Errorf("batch too large for duplicate detection (%d rows, max 400)", len(newIDs))
 	}
 
 	// Build a placeholder list  "?,?,?…"
@@ -321,6 +325,9 @@ func (db *DB) FindFuzzyDuplicates(newIDs []int64) ([]PossibleDupe, error) {
 // future imports with that hash are also silently skipped), then deletes
 // deleteID.  Category and notes from deleteID are preserved if keepID lacks them.
 func (db *DB) MergeTransaction(keepID, deleteID int64) error {
+	if keepID == deleteID {
+		return fmt.Errorf("cannot merge a transaction with itself")
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err

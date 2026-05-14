@@ -7,6 +7,8 @@ import (
 	"kino/internal/models"
 )
 
+const UncategorizedCategoryID int64 = 12
+
 func (db *DB) ListCategories() ([]models.Category, error) {
 	rows, err := db.Query(`
 		SELECT id, name, parent_id, color, icon, is_income, is_system, sort_order
@@ -60,29 +62,24 @@ func (db *DB) UpdateCategory(c *models.Category) error {
 	if c.IsSystem {
 		return fmt.Errorf("system categories cannot be modified")
 	}
-	_, err := db.Exec(`
+	res, err := db.Exec(`
 		UPDATE categories SET
 			name = ?, parent_id = ?, color = ?, icon = ?,
 			is_income = ?, sort_order = ?
 		WHERE id = ? AND is_system = 0
 	`, c.Name, nullInt64(c.ParentID), c.Color, c.Icon,
 		c.IsIncome, c.SortOrder, c.ID)
-	return err
-}
-
-func (db *DB) DeleteCategory(id int64) error {
-	var isSystem bool
-	err := db.QueryRow(`SELECT is_system FROM categories WHERE id = ?`, id).Scan(&isSystem)
-	if err == sql.ErrNoRows {
-		return fmt.Errorf("category %d not found", id)
-	}
 	if err != nil {
 		return err
 	}
-	if isSystem {
-		return fmt.Errorf("system categories cannot be deleted")
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("category not found or is a system category")
 	}
+	return nil
+}
 
+func (db *DB) DeleteCategory(id int64) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -93,13 +90,27 @@ func (db *DB) DeleteCategory(id int64) error {
 		}
 	}()
 
-	// Re-assign transactions to Uncategorized (id=12) before deleting.
-	if _, err = tx.Exec(`UPDATE transactions SET category_id = 12 WHERE category_id = ?`, id); err != nil {
+	// Re-assign transactions to Uncategorized before deleting.
+	if _, err = tx.Exec(`UPDATE transactions SET category_id = ? WHERE category_id = ?`, UncategorizedCategoryID, id); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`DELETE FROM categories WHERE id = ?`, id); err != nil {
+
+	var res sql.Result
+	if res, err = tx.Exec(`DELETE FROM categories WHERE id = ? AND is_system = 0`, id); err != nil {
 		return err
 	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		// Either the category didn't exist or it was a system category.
+		var exists bool
+		if scanErr := tx.QueryRow(`SELECT 1 FROM categories WHERE id = ?`, id).Scan(&exists); scanErr == sql.ErrNoRows {
+			err = fmt.Errorf("category %d not found", id)
+		} else {
+			err = fmt.Errorf("system categories cannot be deleted")
+		}
+		return err
+	}
+
 	err = tx.Commit()
 	return err
 }

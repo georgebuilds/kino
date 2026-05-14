@@ -46,7 +46,7 @@ func (db *DB) CreateBudget(b *models.Budget) error {
 }
 
 func (db *DB) UpdateBudget(b *models.Budget) error {
-	_, err := db.Exec(`
+	res, err := db.Exec(`
 		UPDATE budgets SET
 			category_id  = ?,
 			amount_cents = ?,
@@ -57,7 +57,14 @@ func (db *DB) UpdateBudget(b *models.Budget) error {
 		WHERE id = ?
 	`, b.CategoryID, b.AmountCents, b.Period, b.RollsOver,
 		b.StartDate.Format("2006-01-02"), nullTimeToStr(b.EndDate), b.ID)
-	return err
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("budget not found")
+	}
+	return nil
 }
 
 func (db *DB) DeleteBudget(id int64) error {
@@ -90,7 +97,8 @@ type UnbudgetedSpend struct {
 // GetBudgetProgress returns all budgets joined with their month's spending,
 // plus categories that have unbudgeted spending.
 func (db *DB) GetBudgetProgress(dateFrom, dateTo string) ([]BudgetWithSpend, []UnbudgetedSpend, error) {
-	// Budgeted rows with actual spend
+	// Budgeted rows with actual spend — only budgets whose date range overlaps
+	// the requested month window (start_date < monthEnd AND (end_date IS NULL OR end_date >= monthStart)).
 	rows, err := db.Query(`
 		SELECT
 			b.id, b.category_id, b.amount_cents, b.period, b.rolls_over,
@@ -105,9 +113,11 @@ func (db *DB) GetBudgetProgress(dateFrom, dateTo string) ([]BudgetWithSpend, []U
 			AND t.date <  ?
 			AND t.amount_cents < 0
 			AND t.is_transfer = 0
+		WHERE b.start_date < ?
+		  AND (b.end_date IS NULL OR b.end_date >= ?)
 		GROUP BY b.id
 		ORDER BY c.sort_order, c.name
-	`, dateFrom, dateTo)
+	`, dateFrom, dateTo, dateTo, dateFrom)
 	if err != nil {
 		return nil, nil, err
 	}

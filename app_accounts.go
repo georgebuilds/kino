@@ -7,10 +7,13 @@ func (a *App) ListAccounts() ([]models.Account, error) {
 		return nil, err
 	}
 	accs, err := a.db.ListAccounts()
+	if err != nil {
+		return nil, err
+	}
 	if accs == nil {
 		accs = []models.Account{}
 	}
-	return accs, err
+	return accs, nil
 }
 
 func (a *App) CreateAccount(acc models.Account) (models.Account, error) {

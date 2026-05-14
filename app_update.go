@@ -46,11 +46,15 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 		return UpdateInfo{}, fmt.Errorf("checking for updates: %w", err)
 	}
 	if !found || release.LessOrEqual(version) {
+		a.mu.Lock()
 		a.pendingRelease = nil
+		a.mu.Unlock()
 		return UpdateInfo{Available: false}, nil
 	}
 
+	a.mu.Lock()
 	a.pendingRelease = release
+	a.mu.Unlock()
 	return UpdateInfo{
 		Available:    true,
 		Version:      release.Version(),
@@ -71,7 +75,10 @@ func (a *App) ApplyUpdate() error {
 		return err
 	}
 
+	a.mu.Lock()
 	release := a.pendingRelease
+	a.pendingRelease = nil // consume
+	a.mu.Unlock()
 	if release == nil {
 		// Fallback path: called without a prior CheckForUpdate (shouldn't
 		// happen via the UI, but handle it gracefully).
@@ -84,7 +91,6 @@ func (a *App) ApplyUpdate() error {
 			return fmt.Errorf("no update found")
 		}
 	}
-	a.pendingRelease = nil // consume
 
 	if goruntime.GOOS == "darwin" {
 		return a.applyMacOSUpdate(release)
@@ -167,7 +173,9 @@ func (a *App) applyMacOSUpdate(release *selfupdate.Release) error {
 		return fmt.Errorf("moving current app aside: %w", err)
 	}
 	if err := os.Rename(staged, appBundle); err != nil {
-		os.Rename(backup, appBundle) // best-effort restore
+		if rerr := os.Rename(backup, appBundle); rerr != nil {
+			return fmt.Errorf("update failed: %w; restore also failed: %v", err, rerr)
+		}
 		return fmt.Errorf("installing update: %w", err)
 	}
 	os.RemoveAll(backup)
@@ -240,6 +248,9 @@ func extractZip(src, dst string) error {
 	dstClean := filepath.Clean(dst) + string(os.PathSeparator)
 
 	for _, f := range r.File {
+		if f.Name == "" {
+			continue
+		}
 		target := filepath.Join(dst, f.Name)
 		// Reject path traversal.
 		if !strings.HasPrefix(filepath.Clean(target)+string(os.PathSeparator), dstClean) {
@@ -265,11 +276,16 @@ func extractZip(src, dst string) error {
 			rc.Close()
 			return err
 		}
-		_, copyErr := io.Copy(out, rc)
+		const maxFileSize = 200 << 20 // 200 MB
+		lr := io.LimitReader(rc, maxFileSize+1)
+		n, copyErr := io.Copy(out, lr)
 		rc.Close()
 		out.Close()
 		if copyErr != nil {
 			return copyErr
+		}
+		if n > maxFileSize {
+			return fmt.Errorf("file %s exceeds maximum allowed size of 200 MB", f.Name)
 		}
 	}
 	return nil

@@ -7,7 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -40,13 +42,17 @@ var (
 	reStoreNum  = regexp.MustCompile(`\s*#\s*\d+[a-zA-Z]?\s*$`)
 	reLegalSufx = regexp.MustCompile(`(?i)\s+(llc|inc\.?|corp\.?|co\.?|ltd\.?)\s*$`)
 	reSpaces    = regexp.MustCompile(`\s+`)
-	reNonPrint  = regexp.MustCompile(`[^\x20-\x7E]`)
 )
 
 // NormalizePayee strips store numbers, legal suffixes, and extra whitespace so
 // that "STARBUCKS #1234" and "STARBUCKS #0099" hash identically.
 func NormalizePayee(s string) string {
-	s = reNonPrint.ReplaceAllString(s, " ")
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return ' '
+	}, s)
 	s = reStoreNum.ReplaceAllString(s, "")
 	s = reLegalSufx.ReplaceAllString(s, "")
 	s = reSpaces.ReplaceAllString(s, " ")
@@ -78,7 +84,17 @@ func hashStr(s string) string {
 
 // ── Amount parsing ────────────────────────────────────────────────────────────
 
-var reNonNumeric = regexp.MustCompile(`[^0-9.\-]`)
+func isAllLetters(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !unicode.IsLetter(r) {
+			return false
+		}
+	}
+	return true
+}
 
 // ParseAmount converts a bank amount string to cents.
 // Handles: "$1,234.56", "(45.00)", "-45.00", "1234,56" (EU comma-decimal).
@@ -96,16 +112,22 @@ func ParseAmount(s string) (int64, error) {
 		s = s[1 : len(s)-1]
 	}
 
-	// Strip currency symbols and spaces
-	s = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) && !unicode.IsDigit(r) {
-			return -1
-		}
-		return r
-	}, s)
+	// Strip known currency symbols and letter-only currency codes (e.g. "USD").
+	// Letters are stripped only when they form a word boundary group (all-letter
+	// token separated by spaces from the digits), so "123abc" is not silently
+	// accepted — the letters remain and will cause a parse error below.
 	s = strings.ReplaceAll(s, "$", "")
 	s = strings.ReplaceAll(s, "€", "")
 	s = strings.ReplaceAll(s, "£", "")
+	s = strings.TrimSpace(s)
+	// Strip a leading or trailing all-letter token (currency code like "USD", "EUR").
+	if fields := strings.Fields(s); len(fields) > 1 {
+		if isAllLetters(fields[0]) {
+			s = strings.TrimSpace(s[len(fields[0]):])
+		} else if isAllLetters(fields[len(fields)-1]) {
+			s = strings.TrimSpace(s[:len(s)-len(fields[len(fields)-1])])
+		}
+	}
 	s = strings.TrimSpace(s)
 
 	if strings.HasPrefix(s, "-") {
@@ -113,13 +135,26 @@ func ParseAmount(s string) (int64, error) {
 		s = s[1:]
 	}
 
-	// Detect EU format: 1.234,56 → 1234.56
-	if strings.Count(s, ",") == 1 && strings.Count(s, ".") >= 1 {
-		// comma is decimal separator when it comes last
+	commas := strings.Count(s, ",")
+	dots := strings.Count(s, ".")
+
+	if commas == 1 && dots >= 1 {
+		// Both separators present: comma is decimal when it comes after the last dot.
 		lastComma := strings.LastIndex(s, ",")
 		lastDot := strings.LastIndex(s, ".")
 		if lastComma > lastDot {
 			s = strings.ReplaceAll(s, ".", "")
+			s = strings.ReplaceAll(s, ",", ".")
+		} else {
+			s = strings.ReplaceAll(s, ",", "")
+		}
+	} else if commas == 1 && dots == 0 {
+		// Lone comma: treat as decimal separator only when the part after the
+		// comma has 1-2 digits (EU format "1234,56" = $1234.56).
+		// Three or more digits after the comma means it is a thousands separator
+		// ("1,234" → 1234).
+		afterComma := s[strings.Index(s, ",")+1:]
+		if len(afterComma) <= 2 {
 			s = strings.ReplaceAll(s, ",", ".")
 		} else {
 			s = strings.ReplaceAll(s, ",", "")
@@ -132,28 +167,42 @@ func ParseAmount(s string) (int64, error) {
 		return 0, fmt.Errorf("parse amount %q: empty after stripping", original)
 	}
 
-	// Parse as float → cents
+	// Parse as fixed-point → cents
 	var whole, frac int64
 	parts := strings.SplitN(s, ".", 2)
 	if parts[0] != "" {
-		if _, err := fmt.Sscanf(parts[0], "%d", &whole); err != nil {
+		v, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
 			return 0, fmt.Errorf("parse amount %q: %w", original, err)
 		}
+		whole = v
+	}
+	if whole > math.MaxInt64/100 {
+		return 0, fmt.Errorf("parse amount %q: value overflows int64 cents", original)
 	}
 	if len(parts) == 2 {
 		fracStr := parts[1]
-		// Pad or truncate to 2 decimal places
-		switch len(fracStr) {
-		case 0:
+		switch {
+		case len(fracStr) == 0:
 			frac = 0
-		case 1:
-			if _, err := fmt.Sscanf(fracStr, "%d", &frac); err != nil {
+		case len(fracStr) == 1:
+			v, err := strconv.ParseInt(fracStr, 10, 64)
+			if err != nil {
 				return 0, fmt.Errorf("parse amount %q: %w", original, err)
 			}
-			frac *= 10
+			frac = v * 10
 		default:
-			if _, err := fmt.Sscanf(fracStr[:2], "%d", &frac); err != nil {
+			// Round: look at the third digit (if present).
+			v, err := strconv.ParseInt(fracStr[:2], 10, 64)
+			if err != nil {
 				return 0, fmt.Errorf("parse amount %q: %w", original, err)
+			}
+			frac = v
+			if len(fracStr) > 2 {
+				third, err2 := strconv.ParseInt(string(fracStr[2]), 10, 64)
+				if err2 == nil && third >= 5 {
+					frac++
+				}
 			}
 		}
 	}
@@ -166,6 +215,11 @@ func ParseAmount(s string) (int64, error) {
 }
 
 // ParseDate tries a set of common date formats and returns YYYY-MM-DD.
+//
+// Slash-separated dates are inherently ambiguous when both the first and second
+// components are ≤12 (e.g. "06/07/2025" could be June 7 or July 6). US format
+// (MM/DD/YYYY) is tried first and wins in that case. When the first component
+// is >12 it cannot be a month, so the DD/MM/YYYY format will match instead.
 func ParseDate(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	formats := []string{

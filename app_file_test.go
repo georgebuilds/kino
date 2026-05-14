@@ -29,28 +29,34 @@ func TestCopyFileContents_HappyPath(t *testing.T) {
 		t.Errorf("dst content = %q, want %q", string(got), "hello")
 	}
 
-	// Calling again should fail because dst already exists (O_EXCL)
-	err = copyFileContents(src, dst)
-	if err == nil {
-		t.Error("second copyFileContents to same dst should fail due to O_EXCL")
+	// Calling again should succeed because dst is overwritten (O_TRUNC)
+	if err := copyFileContents(src, dst); err != nil {
+		t.Errorf("second copyFileContents to same dst should succeed: %v", err)
 	}
 }
 
-func TestCopyFileContents_DestExists_Errors(t *testing.T) {
+func TestCopyFileContents_DestExists_Overwrites(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.txt")
 	dst := filepath.Join(dir, "dst.txt")
 
-	if err := os.WriteFile(src, []byte("a"), 0600); err != nil {
+	if err := os.WriteFile(src, []byte("new content"), 0600); err != nil {
 		t.Fatalf("write src: %v", err)
 	}
-	// Pre-create dst
-	if err := os.WriteFile(dst, []byte("b"), 0600); err != nil {
+	// Pre-create dst with different content
+	if err := os.WriteFile(dst, []byte("old content"), 0600); err != nil {
 		t.Fatalf("write dst: %v", err)
 	}
 
-	if err := copyFileContents(src, dst); err == nil {
-		t.Error("expected error when dst already exists")
+	if err := copyFileContents(src, dst); err != nil {
+		t.Fatalf("copyFileContents should overwrite existing dst: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(got) != "new content" {
+		t.Errorf("dst content = %q, want %q", string(got), "new content")
 	}
 }
 

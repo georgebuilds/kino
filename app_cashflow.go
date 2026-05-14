@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+
+	"kino/internal/db"
 )
 
 // ── View models ───────────────────────────────────────────────────────────────
@@ -56,7 +58,7 @@ func (a *App) GetCashFlow(year, month int) (CashFlow, error) {
 	dateTo := fmt.Sprintf("%04d-%02d-01", ny, nm)
 
 	// ── Income by category ────────────────────────────────────────────────
-	// NULL-category rows are bucketed into the seeded "Uncategorized" category (id 12).
+	// NULL-category rows are bucketed into the seeded "Uncategorized" category.
 	iRows, err := a.db.Query(`
 		SELECT
 			CAST(c.id AS TEXT) AS cat_id,
@@ -64,14 +66,14 @@ func (a *App) GetCashFlow(year, month int) (CashFlow, error) {
 			c.color            AS cat_color,
 			SUM(t.amount_cents) AS total
 		FROM transactions t
-		JOIN categories c ON c.id = COALESCE(t.category_id, 12)
+		JOIN categories c ON c.id = COALESCE(t.category_id, ?)
 		WHERE t.date >= ? AND t.date < ?
 		  AND t.amount_cents > 0
 		  AND t.is_transfer = 0
 		GROUP BY c.id
 		HAVING total > 0
 		ORDER BY total DESC
-	`, dateFrom, dateTo)
+	`, db.UncategorizedCategoryID, dateFrom, dateTo)
 	if err != nil {
 		return CashFlow{}, err
 	}
@@ -94,7 +96,7 @@ func (a *App) GetCashFlow(year, month int) (CashFlow, error) {
 	}
 
 	// ── Expenses by category ──────────────────────────────────────────────
-	// NULL-category rows are bucketed into the seeded "Uncategorized" category (id 12).
+	// NULL-category rows are bucketed into the seeded "Uncategorized" category.
 	eRows, err := a.db.Query(`
 		SELECT
 			CAST(c.id AS TEXT) AS cat_id,
@@ -102,14 +104,14 @@ func (a *App) GetCashFlow(year, month int) (CashFlow, error) {
 			c.color            AS cat_color,
 			SUM(-t.amount_cents) AS total
 		FROM transactions t
-		JOIN categories c ON c.id = COALESCE(t.category_id, 12)
+		JOIN categories c ON c.id = COALESCE(t.category_id, ?)
 		WHERE t.date >= ? AND t.date < ?
 		  AND t.amount_cents < 0
 		  AND t.is_transfer = 0
 		GROUP BY c.id
 		HAVING total > 0
 		ORDER BY total DESC
-	`, dateFrom, dateTo)
+	`, db.UncategorizedCategoryID, dateFrom, dateTo)
 	if err != nil {
 		return CashFlow{}, err
 	}
@@ -163,7 +165,7 @@ func (a *App) GetCashFlow(year, month int) (CashFlow, error) {
 	var links []FlowLink
 	for _, ln := range leftNodes {
 		for _, rn := range rightNodes {
-			v := ln.ValueCents * rn.ValueCents / denom
+			v := int64(float64(ln.ValueCents) * float64(rn.ValueCents) / float64(denom))
 			if v <= 0 {
 				continue
 			}

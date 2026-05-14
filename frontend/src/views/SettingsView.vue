@@ -262,9 +262,9 @@
     <!-- ── Delete confirm ─────────────────────────────────────────────────── -->
     <Teleport to="body">
       <div v-if="deleteTarget" class="modal-backdrop" @click.self="deleteTarget = null">
-        <div class="modal modal--sm" role="alertdialog">
+        <div class="modal modal--sm" role="alertdialog" aria-labelledby="settings-delete-title">
           <div class="modal__header">
-            <h2 class="modal__title">Delete "{{ deleteTarget.name }}"?</h2>
+            <h2 id="settings-delete-title" class="modal__title">Delete "{{ deleteTarget.name }}"?</h2>
           </div>
           <div class="modal__body">
             <p class="text-body" style="color: var(--color-text-secondary);">
@@ -384,19 +384,27 @@ const filePath    = ref('')
 const cloudFolders = ref<{ name: string; path: string }[]>([])
 
 onMounted(async () => {
-  const [state, folders, ver] = await Promise.all([
-    GetFileState(),
-    CloudFolderSuggestions(),
-    GetAppVersion(),
-  ])
-  filePath.value     = state.path
-  cloudFolders.value = folders
-  appVersion.value   = ver
+  try {
+    const [state, folders, ver] = await Promise.all([
+      GetFileState(),
+      CloudFolderSuggestions(),
+      GetAppVersion(),
+    ])
+    filePath.value     = state.path
+    cloudFolders.value = folders
+    appVersion.value   = ver
+  } catch (e: any) {
+    console.error('Failed to load settings:', e?.message ?? e)
+  }
 })
 
 async function onMove() {
-  const state = await MoveFile()
-  if (state?.path) filePath.value = state.path
+  try {
+    const state = await MoveFile()
+    if (state?.path) filePath.value = state.path
+  } catch (e: any) {
+    console.error('Failed to move file:', e?.message ?? e)
+  }
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -434,14 +442,12 @@ const deleteError    = ref<string | null>(null)
 
 async function confirmDelete(cat: Category) {
   deleteError.value = null
-  deleteTarget.value = cat
-
-  // Count transactions and direct children
   const [txCount] = await Promise.all([
     catStore.getTransactionCount(cat.id),
   ])
   deleteTxCount.value    = txCount
   deleteChildCount.value = catStore.categories.filter(c => c.parentId === cat.id).length
+  deleteTarget.value = cat
 }
 
 async function doDelete() {

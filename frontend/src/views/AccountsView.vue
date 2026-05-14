@@ -91,9 +91,9 @@
     <!-- Delete confirmation -->
     <Teleport to="body">
       <div v-if="deleteTarget" class="modal-backdrop" @click.self="deleteTarget = null">
-        <div class="modal modal--sm" role="alertdialog">
+        <div class="modal modal--sm" role="alertdialog" aria-labelledby="acc-delete-title">
           <div class="modal__header">
-            <h2 class="modal__title">Delete account?</h2>
+            <h2 id="acc-delete-title" class="modal__title">Delete account?</h2>
           </div>
           <div class="modal__body">
             <p class="text-body" style="color: var(--color-text-secondary);">
@@ -169,14 +169,18 @@ function closeModal() {
 }
 
 async function onSaved(draft: Account) {
-  if (editTarget.value) {
-    // Merge draft onto original; preserve id, timestamps, balanceCents (not editable in modal)
-    const merged = { ...editTarget.value, ...draft, id: editTarget.value.id } as Account
-    await accountsStore.update(merged)
-  } else {
-    await accountsStore.create(draft)
+  try {
+    if (editTarget.value) {
+      // Merge draft onto original; preserve id, timestamps, balanceCents (not editable in modal)
+      const merged = { ...editTarget.value, ...draft, id: editTarget.value.id } as Account
+      await accountsStore.update(merged)
+    } else {
+      await accountsStore.create(draft)
+    }
+    closeModal()
+  } catch (e: any) {
+    console.error('Failed to save account:', e?.message ?? e)
   }
-  closeModal()
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────────

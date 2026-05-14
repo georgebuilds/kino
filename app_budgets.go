@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"kino/internal/db"
 	"kino/internal/models"
 )
 
@@ -94,6 +93,13 @@ func (a *App) GetBudgetPage(year, month int) (BudgetPage, error) {
 		totalSpent += u.SpentCents
 	}
 
+	if lines == nil {
+		lines = []BudgetLine{}
+	}
+	if ulines == nil {
+		ulines = []UnbudgetedLine{}
+	}
+
 	return BudgetPage{
 		Lines:            lines,
 		Unbudgeted:       ulines,
@@ -140,5 +146,3 @@ func (a *App) ListBudgets() ([]models.Budget, error) {
 	return a.db.ListBudgets()
 }
 
-// dbBudget is just to avoid an unused import — db is used above.
-var _ = db.BudgetWithSpend{}

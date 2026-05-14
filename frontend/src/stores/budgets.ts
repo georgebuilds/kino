@@ -38,16 +38,16 @@ export const useBudgetsStore = defineStore('budgets', () => {
     }
   }
 
-  function prevMonth() {
+  async function prevMonth() {
     if (month.value === 1) { month.value = 12; year.value-- }
     else month.value--
-    fetch()
+    await fetch()
   }
 
-  function nextMonth() {
+  async function nextMonth() {
     if (month.value === 12) { month.value = 1; year.value++ }
     else month.value++
-    fetch()
+    await fetch()
   }
 
   async function create(b: Omit<Budget, 'id'>) {
@@ -69,6 +69,7 @@ export const useBudgetsStore = defineStore('budgets', () => {
         lines: page.value.lines?.filter(l => l.id !== id) ?? [],
       } as BudgetPage
     }
+    await fetch()
   }
 
   return {

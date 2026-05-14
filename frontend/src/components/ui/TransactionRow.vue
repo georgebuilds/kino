@@ -12,7 +12,7 @@
         class="tx-row__amount tabular-nums"
         :class="transaction.amountCents > 0 ? 'amount--positive' : ''"
       >
-        {{ transaction.amountCents > 0 ? '+' : '-' }}${{ formatAbs(transaction.amountCents) }}
+        {{ transaction.amountCents > 0 ? '+' : transaction.amountCents < 0 ? '-' : '' }}${{ formatAbs(transaction.amountCents) }}
       </span>
       <span v-if="cat" class="badge tx-row__category" :style="{ background: `${cat.color}18`, color: cat.color }">
         {{ cat.name }}
@@ -22,9 +22,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw } from 'vue'
-import { ShoppingCart, Tv, Banknote, Car, Apple, Tag, Home, Heart, Ticket, ShoppingBag, PiggyBank, TrendingUp, ArrowLeftRight } from 'lucide-vue-next'
+import { computed } from 'vue'
 import type { models } from '../../../wailsjs/go/models'
+import { iconComponent } from '../../utils/categoryIcons'
 
 type Transaction = models.Transaction
 type Category    = models.Category
@@ -34,21 +34,6 @@ const props = defineProps<{
   categories:  Category[]
 }>()
 
-const iconMap: Record<string, any> = {
-  'home':          markRaw(Home),
-  'utensils':      markRaw(Apple),
-  'tv':            markRaw(Tv),
-  'banknote':      markRaw(Banknote),
-  'car':           markRaw(Car),
-  'heart-pulse':   markRaw(Heart),
-  'ticket':        markRaw(Ticket),
-  'shopping-bag':  markRaw(ShoppingBag),
-  'piggy-bank':    markRaw(PiggyBank),
-  'trending-up':   markRaw(TrendingUp),
-  'arrow-left-right': markRaw(ArrowLeftRight),
-  'tag':           markRaw(Tag),
-}
-
 const cat = computed(() =>
   props.transaction.categoryId
     ? props.categories.find(c => c.id === props.transaction.categoryId) ?? null
@@ -56,7 +41,7 @@ const cat = computed(() =>
 )
 
 const catColor = computed(() => cat.value?.color ?? '#5A6B60')
-const catIcon  = computed(() => iconMap[cat.value?.icon ?? 'tag'] ?? markRaw(Tag))
+const catIcon  = computed(() => iconComponent(cat.value?.icon ?? 'tag'))
 
 function formatAbs(cents: number) {
   return (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

@@ -5,7 +5,10 @@
       :width="width"
       :height="height"
       class="sankey-svg"
+      role="img"
+      aria-label="Cash flow diagram"
     >
+      <title>Cash flow diagram</title>
       <defs>
         <!-- Per-link gradients -->
         <linearGradient

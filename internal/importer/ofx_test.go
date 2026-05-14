@@ -241,8 +241,12 @@ func TestParseOFX_V2_MultipleStatementsDistinctACCTIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOFX unexpected error: %v", err)
 	}
-	if len(warnings) != 0 {
-		t.Fatalf("expected no warnings, got %v", warnings)
+	// A warning is expected because the file contains two distinct account IDs.
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning (multiple accounts), got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "2 accounts") {
+		t.Errorf("expected warning to mention '2 accounts', got: %v", warnings[0])
 	}
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows (one per statement), got %d", len(rows))
